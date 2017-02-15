@@ -10,7 +10,6 @@
 #include <wiringPi.h>
 #include <wiringSerial.h>
 #include <unistd.h>
-#include <stdio.h>
 
 int main(int argc, char **argv)
 {
@@ -26,34 +25,34 @@ int main(int argc, char **argv)
 	                                            
 	//bytes[0]=(char)(value & 0xFF);
 	
-	if ((fd = serialOpen("/dev/ttyS0",115200)) < 0){
-		fprintf(stderr, "Unable to open serial device: %s\n", strerror (errno));
-		return 1;		
-		}
-	
-	//if ((fd2 = serialOpen("/dev/ttyUSB0",115200)) < 0){
+	//if ((fd = serialOpen("/dev/ttyS0",115200)) < 0){
 		//fprintf(stderr, "Unable to open serial device: %s\n", strerror (errno));
 		//return 1;		
 		//}
+	
+	if ((fd2 = serialOpen("/dev/ttyUSB0",115200)) < 0){
+		fprintf(stderr, "Unable to open serial device: %s\n", strerror (errno));
+		return 1;		
+		}
 			
 	if (wiringPiSetup() == -1){
 		fprintf(stdout, "Unable to start wiringPi: %s\n", strerror(errno));
 		return 1;
 	}
 	
-	for (i=0;i<10;i++){
+	for (i=0;i<100;i++){
 		//printf("Bytes available: %i\n", serialDataAvail(fd));
 		serialPutchar(fd, value[1]);
-		//printf("Value no %i: %i\n", i, serialGetchar(fd2));
+		printf("Value no %i: %i\n", i, serialGetchar(fd2));
 		//serialFlush(fd);
 		sleep(1);
 	}
-	
+	 
 	
 	serialFlush(fd);
 	serialClose(fd);
-	//serialFlush(fd2);
-	//serialClose(fd2);
+	serialFlush(fd2);
+	serialClose(fd2);
 	
 	return 0;
 	
