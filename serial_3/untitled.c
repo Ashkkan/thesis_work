@@ -1,3 +1,7 @@
+/* Write on UART pins and read from USB
+ * dmesg | grep tty -> shows all the connected serial communications
+ * ttyS0 -> pins, ttyUSB0 -> USB0, ttyAMA0 -> most probably Bluetooth
+ */  
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -18,7 +22,8 @@ int main(int argc, char **argv)
 	value[1]=100;
 	value[2]=1000;
 	value[3]=2000;
-	
+	                                            
+	                                            
 	//bytes[0]=(char)(value & 0xFF);
 	
 	if ((fd = serialOpen("/dev/ttyS0",115200)) < 0){
@@ -26,10 +31,10 @@ int main(int argc, char **argv)
 		return 1;		
 		}
 	
-	if ((fd2 = serialOpen("/dev/ttyUSB0",115200)) < 0){
-		fprintf(stderr, "Unable to open serial device: %s\n", strerror (errno));
-		return 1;		
-		}
+	//if ((fd2 = serialOpen("/dev/ttyUSB0",115200)) < 0){
+		//fprintf(stderr, "Unable to open serial device: %s\n", strerror (errno));
+		//return 1;		
+		//}
 			
 	if (wiringPiSetup() == -1){
 		fprintf(stdout, "Unable to start wiringPi: %s\n", strerror(errno));
@@ -39,16 +44,18 @@ int main(int argc, char **argv)
 	for (i=0;i<10;i++){
 		//printf("Bytes available: %i\n", serialDataAvail(fd));
 		serialPutchar(fd, value[1]);
-		printf("Value no %i: %i\n", i, serialGetchar(fd2));
+		//printf("Value no %i: %i\n", i, serialGetchar(fd2));
 		//serialFlush(fd);
 		sleep(1);
 	}
 	
+	
 	serialFlush(fd);
 	serialClose(fd);
-	serialFlush(fd2);
-	serialClose(fd2);
+	//serialFlush(fd2);
+	//serialClose(fd2);
 	
 	return 0;
+	
 }
 
