@@ -3,6 +3,8 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>	//memcpy
+#include <unistd.h>	//usleep
+#include <time.h>	//usleep
 #include "blas.h"
 #include "lapack.h"
 #include "matrix.h"
@@ -64,7 +66,7 @@ int main()
 	
     double A[n*n], B[n*n], Q[nn], R[m*m], Qf[nn], xmax[n], xmin[n], umax[m], umin[m];
     double X[nt], U[mt], X0[nt], U0[mt], u_[m], x0[n], x_temp[n], x_temp2[n], w_temp[n];
-    double Xhist[n*nsteps], Uhist[n*nsteps], Jhist[1*nsteps], thist[1*nsteps];
+    double Xhist[n*nsteps], Uhist[n*nsteps], Jhist[1*nsteps], thist[1*nsteps], telapsed_sum=0;
 
 	static const double dv0[144] = { 0.7627, 0.1149, 0.0025, 0.0, 0.0, 0.0,
 	-0.8994, 0.4202, 0.0193, 0.0002, 0.0, 0.0, 0.1149, 0.7652, 0.1149, 0.0025,
@@ -341,7 +343,7 @@ int main()
 	
 	const double xx[12] = { 0.0, -0.0, -0.0, -0.0, -0.0, -0.0,
 	-0.0435, -0.4815, 0.3214, -0.0553, 0.1154, 0.2919 };
-	memcpy(&x[0], &xx[0], n * sizeof(double));
+	//memcpy(&x[0], &xx[0], n * sizeof(double));
 	
 	k=0;
 	while (k < nsteps) {
@@ -349,8 +351,6 @@ int main()
 		//printmat(x, n, 1);
 		t1 = clock();
 		fmpcsolve(A,B,At,Bt,eyen,eyem,Q,R,Qf,zmax,zmin,x,z,T,n,m,nz,niters,kappa);
-		t2 = clock();
-		telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
 
 		dptr = z;
 		for (i = 0; i < T; i++)
@@ -383,8 +383,8 @@ int main()
 			//sprintf("%d \n", w_temp[i]);
 		}
 		
-		printf("\n u_ ");
-		printmat(u_, m ,1);
+		//printf("\n u_ ");
+		//printmat(u_, m ,1);
 		
 		F77_CALL(dgemv)("n", &n, &n, &fone, A, &n, x ,&ione, &fzero, x_temp, &ione);
 		F77_CALL(dgemv)("n", &n, &m, &fone, B, &n, u_ ,&ione, &fone, w_temp, &ione);
@@ -454,12 +454,36 @@ int main()
 			}
 		}
 			
-		k++;
+
 		//printf("%i \n", k);
+		
+		t2 = clock();
+		telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
+		thist[k] = telapsed;
+		telapsed_sum += telapsed;
+		k++;
 	}
 
-	printf("\n");
-	printmat(x, n ,1);
+	//printf("\n");
+	//printmat(x, n ,1);
+	
+	double maximum = 0;
+	  for (i = 0; i < nsteps; i++)
+  {
+    if (thist[i] > maximum)
+    {
+       maximum  = thist[i];
+       //location = c+1;
+    }
+  }
+	
+	printf("\n telapsed_sum is %15.10f \n", 1/maximum);
+	
+	t1 = clock();
+	usleep(5000000);
+	t2 = clock();
+	telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
+	printf("\n 5555 is %15.10f \n", telapsed);
 	
 	free(At); free(Bt); free(eyen); free(eyem);
     free(z); free(x); free(zmax); free(zmin);
@@ -535,7 +559,7 @@ void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen,
     }
     if (quiet == 0)
     {   
-        printf("\n iteration \t step \t\t rd \t\t\t rp\n");
+        //printf("\n iteration \t step \t\t rd \t\t\t rp\n");
     }
     for (iiter = 0; iiter < maxiter; iiter++)
     {
@@ -617,7 +641,7 @@ void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen,
         }
         if (quiet == 0)
         {
-            printf("    %d \t\t %5.4f \t %0.5e \t\t %0.5e\n",iiter,s,newresd,newresp);
+            //printf("    %d \t\t %5.4f \t %0.5e \t\t %0.5e\n",iiter,s,newresd,newresp);
         }
     }
     dptr = z0; dptr1 = z;
