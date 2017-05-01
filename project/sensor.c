@@ -61,7 +61,7 @@ void printBits(size_t const size, void const * const ptr);
 //static float position[3]={1.0f,1.0f,1.0f};
 //static float angles[3]={0,0,0};
 //static float tuning[3];
-static double sensorRawDataPosition[3]; // Global variable in sensor.c to communicate between IMU read and angle fusion threads
+static double sensorRawDataPosition[4]; // Global variable in sensor.c to communicate between IMU read and angle fusion threads
 //static double sensorRawData[16]={0,0,0,0,0,0,0,0,0,0,0,0}; // Global variable in sensor.c to communicate between imu read and position fusion threads
 static double sensorRawDataAngles[16]={0,0,0,0,0,0,0,0,0,0,0,0}; 
 
@@ -72,9 +72,7 @@ static pthread_mutex_t mutexAngleSensorData = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutexPositionSensorData = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutexI2CBusy = PTHREAD_MUTEX_INITIALIZER;
 
-
-
-
+int counter=0;
 
 /******************************************************************/
 /*************************START PROCESS****************************/
@@ -104,9 +102,6 @@ void startSensors(void *arg1, void *arg2){
 	if (!res5) pthread_join( threadSenFus, NULL);
 	if (!res6) pthread_join( threadPWMCtrl, NULL);
 }
-
-
-
 
 
 /******************************************************************/
@@ -166,7 +161,7 @@ static void *threadPipeSensorToControllerAndComm (void *arg){
 	//structPipe *ptrPipe1 = pipeArray1->pipe1;
 	structPipe *ptrPipe2 = pipeArray1->pipe2;
 	//float sensorDataBuffer[3]={0,0,0};
-	double sensorDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+	double sensorDataBuffer[20]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0};
 	//int lengthSensorRawDataAngles = 0;
 	
 	// Timers for sampling frequency
@@ -193,11 +188,14 @@ static void *threadPipeSensorToControllerAndComm (void *arg){
 		
 		//lengthSensorRawDataAngles = sizeof(sensorRawDataAngles);
 		
+		//printf("OUTTTTSIDE %i ", counter);
+		//printmat(sensorRawDataPosition, 1, 4);
+		
 		pthread_mutex_lock(&mutexPositionSensorData);
 			memcpy(sensorDataBuffer + 16, sensorRawDataPosition, sizeof(sensorRawDataPosition));	
 		pthread_mutex_unlock(&mutexPositionSensorData);
 		
-		//printmat(sensorDataBuffer, 1, 19);
+		//printmat(sensorDataBuffer, 1, 20);
 
 		// Write to Controller process
 		//if (write(ptrPipe1->child[1], sensorDataBuffer, sizeof(sensorDataBuffer)) != sizeof(sensorDataBuffer)) printf("pipe write error in Sensor to Controller\n");
@@ -253,9 +251,10 @@ void *threadReadBeacon (void *arg){
 	uint32_t data32;
 	double beacons[16];	//each beacon needs 4 doubles, address and XYZ
 	int n;
-	int hedgehogReading = 0;
+	double hedgehogReading[1] = {0};
 	int beaconFlag = 0;
-	
+	int beaconsCoordinates = 0;
+	//double dummy = 0.0;
 	int fdBeacon;
 	
 	// Loop forever trying to connect to Beacon sensor via USB
@@ -271,7 +270,8 @@ void *threadReadBeacon (void *arg){
 			}
 			
 			// Loop for ever reading data
-			while(1){				 
+			while(1){	
+				counter++;			 
 				// Read serial data when available
 				if (serialDataAvail(fdBeacon)){
 					if ((int)(data8[0]=serialGetchar(fdBeacon)) == -1){
@@ -284,7 +284,7 @@ void *threadReadBeacon (void *arg){
 						data8[4] = serialGetchar(fdBeacon);	// number of bytes of data transmitting
 						
 						if ((data16=data8[3] << 8| data8[2]) == 0x0011 && data8[1] == 0x47 && data8[4] == 0x16){
-							hedgehogReading = 1; //reading mm				
+							hedgehogReading[0] = 1.0; //reading mm				
 							n = (int)(data8[4]);
 							//printf("%d", n);
 							for (int i=0;i<n;i++){
@@ -295,23 +295,37 @@ void *threadReadBeacon (void *arg){
 							
 							beaconTimestamp = (double)(data32 = data8[8] << 24| data8[7] << 16| data8[6] << 8| data8[5]);			
 							// Raw position uint data to float
-							posRaw[0] = (double)(data32 = data8[12] << 24| data8[11] << 16| data8[10] << 8| data8[9])*0.001;
-							posRaw[1] = (double)(data32 = data8[16] << 24| data8[15] << 16| data8[14] << 8| data8[13])*0.001;	
-							posRaw[2] = (double)(data32 = data8[20] << 24| data8[19] << 16| data8[18] << 8| data8[17])*0.001;
+							posRaw[0] = (double)(int32_t)(data32 = data8[12] << 24| data8[11] << 16| data8[10] << 8| data8[9])*0.001;
+							posRaw[1] = (double)(int32_t)(data32 = data8[16] << 24| data8[15] << 16| data8[14] << 8| data8[13])*0.001;	
+							posRaw[2] = (double)(int32_t)(data32 = data8[20] << 24| data8[19] << 16| data8[18] << 8| data8[17])*0.001;
 							
-							// Copy raw position to global variable for use in sensor fusion thread
-							pthread_mutex_lock(&mutexPositionSensorData);
-								memcpy(sensorRawDataPosition, posRaw, sizeof(posRaw));
-							pthread_mutex_unlock(&mutexPositionSensorData);
+							beaconFlag = (data8[21] >> 0) & 1; //takes the bit number 1 of it!
+							//printf("beaconFlag %i\n", beaconFlag);						
+							if ( beaconFlag == 0 ) {
+								// Copy raw position to global variable for use in sensor fusion thread
+								pthread_mutex_lock(&mutexPositionSensorData);
+									memcpy(sensorRawDataPosition, posRaw, sizeof(posRaw));
+									memcpy(sensorRawDataPosition+3, hedgehogReading, sizeof(hedgehogReading));
+									//memcpy(sensorRawDataPosition+4, &beaconTimestamp, sizeof(beaconTimestamp));
+									//memcpy(sensorRawDataPosition+5, &beaconFlag, sizeof(beaconFlag));
+								pthread_mutex_unlock(&mutexPositionSensorData);
+							}
+							else {
+								printf("beaconFlag ERROR, flag is %i\n", beaconFlag); //keep this on RPi console for troubleshooting
+							}
 							
-							beaconFlag=(int)data8[21];	
-							printf("%i => X=%.3f, Y=%.3f, Z=%.3f at %f with flags ", hedgehogReading, posRaw[0], posRaw[1], posRaw[2], 1/(beaconTimestamp-beaconTimestampPrev)*1000);
-							printBits(1, &beaconFlag);
+							//printf("INSIDE %i    ", counter);
+							//printmat(sensorRawDataPosition, 1, 4);
+							
+							// beaconFlag=(int)data8[21];
+							//printf("%.0f => X=%.3f, Y=%.3f, Z=%.3f at %f with all flags ", hedgehogReading[0], posRaw[0], posRaw[1], posRaw[2], 1/(beaconTimestamp-beaconTimestampPrev)*1000);
+							// printBits(1, &beaconFlag);
 							beaconTimestampPrev = beaconTimestamp;
-							hedgehogReading = 0; //reading is done!
+							
+							usleep(15000);
 						}
 						else if ((data16=data8[3] << 8| data8[2]) == 0x0001 && data8[1] == 0x47 && data8[4] == 0x10){
-							hedgehogReading = 2; //reading cm				
+							hedgehogReading[0] = 2.0; //reading cm				
 							n = (int)(data8[4]);
 							//printf("%d", n);
 							for (int i=0;i<n;i++){
@@ -322,20 +336,31 @@ void *threadReadBeacon (void *arg){
 							
 							beaconTimestamp = (double)(data32 = data8[8] << 24| data8[7] << 16| data8[6] << 8| data8[5]);			
 							// Raw position uint data to float
-							posRaw[0] = (double)(data16 = data8[10] << 8| data8[9])*0.01;
-							posRaw[1] = (double)(data16 = data8[12] << 8| data8[11])*0.01;	
-							posRaw[2] = (double)(data16 = data8[14] << 8| data8[13])*0.01;
+							posRaw[0] = (double)(int16_t)(data16 = data8[10] << 8| data8[9])*0.01;
+							posRaw[1] = (double)(int16_t)(data16 = data8[12] << 8| data8[11])*0.01;	
+							posRaw[2] = (double)(int16_t)(data16 = data8[14] << 8| data8[13])*0.01;
 							
-							// Copy raw position to global variable for use in sensor fusion thread
-							pthread_mutex_lock(&mutexPositionSensorData);
-								memcpy(sensorRawDataPosition, posRaw, sizeof(posRaw));
-							pthread_mutex_unlock(&mutexPositionSensorData);
-								
-							printf("%i => X=%.3f, Y=%.3f, Z=%.3f at %f with flags ", 
-								hedgehogReading, posRaw[0], posRaw[1], posRaw[2], 1/(beaconTimestamp-beaconTimestampPrev)*1000);
-							printBits(1, &beaconFlag);
+							beaconFlag = (data8[15] >> 0) & 1; //takes the bit number 1 of it!
+							//printf("beaconFlag %i\n", beaconFlag);					
+							if ( beaconFlag == 1 ) {
+								// Copy raw position to global variable for use in sensor fusion thread
+								pthread_mutex_lock(&mutexPositionSensorData);
+									memcpy(sensorRawDataPosition, posRaw, sizeof(posRaw));
+									memcpy(sensorRawDataPosition+3, hedgehogReading, sizeof(hedgehogReading));
+									//memcpy(sensorRawDataPosition+4, &beaconTimestamp, sizeof(beaconTimestamp));
+									//memcpy(sensorRawDataPosition+5, &beaconFlag, sizeof(beaconFlag));
+								pthread_mutex_unlock(&mutexPositionSensorData);	
+							}
+							else {
+								printf("beaconFlag ERROR, flag is %i\n", beaconFlag); //keep this on RPi console for troubleshooting
+							}
+							
+							//beaconFlag=(int)data8[15];	
+							//printf("%.0f => X=%.3f, Y=%.3f, Z=%.3f at %f with all flags ", hedgehogReading, posRaw[0], posRaw[1], posRaw[2], 1/(beaconTimestamp-beaconTimestampPrev)*1000);
+							//printBits(1, &beaconFlag);
 							beaconTimestampPrev = beaconTimestamp;
-							hedgehogReading = 0; //reading is done!
+							
+							usleep(15000);
 						}
 						else if ((data16=data8[3] << 8| data8[2]) == 0x0002 && data8[1] == 0x47){//cm
 							data8[5] = serialGetchar(fdBeacon); // number of beacons
@@ -363,10 +388,9 @@ void *threadReadBeacon (void *arg){
 							beacons[13] = (double)(data16 = data8[32] << 8| data8[31])*0.01;
 							beacons[14] = (double)(data16 = data8[34] << 8| data8[33])*0.01;
 							beacons[15] = (double)(data16 = data8[36] << 8| data8[35])*0.01;
-							printf("%i beacons:\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f,\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f\n", 
-								data8[5], (int)beacons[0] ,beacons[1] ,beacons[2], beacons[3], (int)beacons[4], beacons[5], beacons[6], beacons[7], (int)beacons[8], 
-									beacons[9], beacons[10], beacons[11], (int)beacons[12], beacons[13], beacons[14], beacons[15]);
-							usleep(20000);
+							//printf("%i beacons:\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f,\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f\n", data8[5], (int)beacons[0] ,beacons[1] ,beacons[2], beacons[3], (int)beacons[4], beacons[5], beacons[6], beacons[7], (int)beacons[8], beacons[9], beacons[10], beacons[11], (int)beacons[12], beacons[13], beacons[14], beacons[15]);
+							
+							usleep(15000);
 						}
 						else if ((data16=data8[3] << 8| data8[2]) == 0x0012 && data8[1] == 0x47){//mm
 							data8[5] = serialGetchar(fdBeacon); // number of beacons
@@ -394,14 +418,14 @@ void *threadReadBeacon (void *arg){
 							beacons[13] = (double)(data32 = data8[52] << 24| data8[51] << 16| data8[50] << 8| data8[49])*0.001;
 							beacons[14] = (double)(data32 = data8[56] << 24| data8[55] << 16| data8[54] << 8| data8[53])*0.001;
 							beacons[15] = (double)(data32 = data8[60] << 24| data8[59] << 16| data8[58] << 8| data8[57])*0.001;
-							printf("%i beacons:\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f,\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f\n", 
-								data8[5], (int)beacons[0] ,beacons[1] ,beacons[2], beacons[3], (int)beacons[4], beacons[5], beacons[6], beacons[7], (int)beacons[8], 
-									beacons[9], beacons[10], beacons[11], (int)beacons[12], beacons[13], beacons[14], beacons[15]);
-							usleep(20000);
+							//printf("%i beacons:\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f,\nBeacon%i> %.3f %.3f %.3f, Beacon%i> %.3f %.3f %.3f\n", data8[5], (int)beacons[0] ,beacons[1] ,beacons[2], beacons[3], (int)beacons[4], beacons[5], beacons[6], beacons[7], (int)beacons[8], beacons[9], beacons[10], beacons[11], (int)beacons[12], beacons[13], beacons[14], beacons[15]);
+							
+							usleep(15000);
 						}
 						else{
 							//printf("data8[1] -> %04x\n", data8[1]);
 							//printf("Unrecognized code of data in packet -> %04x  and  %02x\n", data16, data8[1]);
+							
 							usleep(20000);
 						}
 					}
@@ -409,8 +433,23 @@ void *threadReadBeacon (void *arg){
 						usleep(20000);	// if it is not broadcasting 0xff
 					}
 				}
-				usleep(20000);	// if Data not avail 
+				else{// else not avail
+					//printf("else %i\n", counter);
+					hedgehogReading[0] = 0.0; //reading is done!
+					posRaw[0] = NAN;
+					posRaw[1] = NAN;	
+					posRaw[2] = NAN;
+					pthread_mutex_lock(&mutexPositionSensorData);
+						memcpy(sensorRawDataPosition, posRaw, sizeof(posRaw));
+						memcpy(sensorRawDataPosition+3, hedgehogReading, sizeof(hedgehogReading));
+						//memcpy(sensorRawDataPosition+4, &beaconTimestamp, sizeof(beaconTimestamp));
+						//memcpy(sensorRawDataPosition+5, &beaconFlag, sizeof(beaconFlag));
+					pthread_mutex_unlock(&mutexPositionSensorData);
+					
+					usleep(15000);	// if Data not avail
+				}
 			}
+			
 		}
 		sleep(5); // file not open sleep for 5
 	}
@@ -1229,6 +1268,8 @@ void saveSettings(){
 	// Close file
 	fclose(fp);
 }
+
+// Used to print the bits in a data type
 void printBits(size_t const size, void const * const ptr)
 {
     unsigned char *b = (unsigned char*) ptr;
