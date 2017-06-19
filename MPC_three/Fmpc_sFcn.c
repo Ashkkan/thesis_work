@@ -121,8 +121,8 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     double *dptr, *dptr1, *dptr2;
     const double *Cdptr;
     double *A, *B, *At, *Bt, *Q, *R, *Qf, *xmax, *xmin, *umax, *umin, *x;
-    double *zmax, *zmin, *zmaxp, *zminp, *X, *U, *z, *eyen, *eyem, *x0;
-    double *X0, *U0;
+    double *zmax, *zmin, *zmaxp, *zminp, *X_all, *U_all, *z, *eyen, *eyem, *x0;
+    double *X0_all, *U0_all;
     int agent_mode = 0;
 //     double *A_temp, *B_temp;
     double *telapsed;
@@ -147,8 +147,8 @@ static void mdlOutputs(SimStruct *S, int_T tid)
 //     n=n+nd;
     nz = T*(n+m);
 //     
-    X0 = malloc(sizeof(double)*n*T);
-    U0 = malloc(sizeof(double)*m*T);
+    X0_all = malloc(sizeof(double)*n*T);
+    U0_all = malloc(sizeof(double)*m*T);
     x0 = malloc(sizeof(double)*n*1);
     /* REMEMBER TO FREE THE MEMOMRY!!! */
     A = malloc(sizeof(double)*n*n);
@@ -160,14 +160,14 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     Cdptr = uPtrs[0];
     for (i = 0; i < T; i++) {   //col-major X0_temp
         for (j = 0; j < n; j++) {
-            X0[i*n+j] = *Cdptr++;
+            X0_all[i*n+j] = *Cdptr++;
 //             *y++ = X0_temp[i*n+j];
 //             Cdptr++;
         }
     }
     for (i = 0; i < T; i++) {   //col-major U0_temp
         for (j = 0; j < m; j++) {
-            U0[i*m+j] = *Cdptr++;
+            U0_all[i*m+j] = *Cdptr++;
 //             *y++ = U0_temp[i*m+j];
 //             printf("%f\n", U0_temp[i*m+j]);
 //             Cdptr++;
@@ -209,10 +209,10 @@ static void mdlOutputs(SimStruct *S, int_T tid)
 //     printf("---\n"); 
 //  
     /* outputs */
-    X = malloc(sizeof(double)*n*T);
-    U = malloc(sizeof(double)*m*T);
+    X_all = malloc(sizeof(double)*n*T);
+    U_all = malloc(sizeof(double)*m*T);
     telapsed = malloc(sizeof(double)*1);
-
+//
     At = malloc(sizeof(double)*n*n);
     Bt = malloc(sizeof(double)*n*m);
     eyen = malloc(sizeof(double)*n*n);
@@ -260,12 +260,12 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     {
         for (j = 0; j < m; j++)
         {
-            *dptr = *(U0+i*m+j);
+            *dptr = *(U0_all+i*m+j);
             dptr++;
         }
         for (j = 0; j < n; j++)
         {
-            *dptr = *(X0+i*n+j);
+            *dptr = *(X0_all+i*n+j);
             dptr++; 
         }
     }  
@@ -341,14 +341,14 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     {
         for (j = 0; j < m; j++)
         {
-            *(U+i*m+j) = *dptr;
+            *(U_all+i*m+j) = *dptr;
             *y++ = *dptr;//output
 //             *y++ = 0;//output
             dptr++;
         }
         for (j = 0; j < n; j++)
         {
-            *(X+i*n+j) = *dptr;
+            *(X_all+i*n+j) = *dptr;
             *y++ = *dptr;//output
 //             *y++ = 0;//output
             dptr++;
@@ -360,10 +360,16 @@ static void mdlOutputs(SimStruct *S, int_T tid)
 //             *y++ = i+1;
 //     }
 //     
+//     free(At); free(Bt); free(eyen); free(eyem);
+//     free(z); free(x); free(zmax); free(zmin);
+//     free(A); free(B);
+//     free(xmin); free(xmax);
+    
+    free(X0_all); free(U0_all); free(x0);
+    free(A); free(B); free(xmax); free(xmin);
+    free(X_all); free(U_all); free(telapsed);
     free(At); free(Bt); free(eyen); free(eyem);
-    free(z); free(x); free(zmax); free(zmin);
-    free(A); free(B);
-    free(xmin); free(xmax);
+    free(z); free(x); free(zmax); free(zmin); free(zmaxp); free(zminp);
     return;
 }
 
