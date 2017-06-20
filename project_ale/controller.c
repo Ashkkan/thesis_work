@@ -46,18 +46,36 @@ static const double ftwo = 2;
 static const double fzero = 0;
 static const double fmone = -1;
 static int quiet = 0;
+
+static struct PosParams {
+	double A[16], B[8], Q[4], R[4], Qf[16], umax[2], umin[2];
+	double kappa;
+	int n, m, T, niters;
+	};
+static struct PosInputs {
+	double X0_all[4*30], U0_all[2*30], x0[4], xmax[4], xmin[4];
+	};
+static struct AttParams {
+	double A[36], B[18], Q[36], R[9], Qf[36], umax[3], umin[3];
+	double kappa;
+	int n, m, T, niters;
+	};
+static struct AttInputs {
+	double X0_all[6*30], U0_all[3*30], x0[6], xmax[6], xmin[6];
+	};
 static struct AltParams {
-	double A[4], B[2], Q[4], R, Qf[4], umax, umin, kappa;
+	double A[4], B[2], Q[4], R[1], Qf[4], umax[1], umin[1];
+	double kappa;
 	int n, m, T, niters;
 	};
 static struct AltInputs {
-	double X0_all[2*30], U0_all[30], x0[2], xmax[2], xmin[2];
+	double X0_all[2*30], U0_all[1*30], x0[2], xmax[2], xmin[2];
 	};
 
 // Controller variables
 const static int PosTs = 1e+7; // 1e+7 is 1 sec
 const static int AttTs = 1e+7; // 1e+7 is 1 sec
-const static int AltTs = 1e+7; // 1e+7 is 1 sec
+const static int AltTs = 1e+8; // 1e+7 is 1 sec
 
 // Predeclarations
 static void *threadUpdateMeasurements(void*);
@@ -69,7 +87,9 @@ static void *threadControllerWatchdogAtt(void*);
 static void *threadControllerAlt(void*);
 static void *threadControllerWatchdogAlt(void*);
 
-static void fmpc(struct AltParams *, struct AltInputs *, double *X, double *U);
+static void posFmpc(struct PosParams *, struct PosInputs *, double *posX_all, double *posU_all);
+static void attFmpc(struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all);
+static void altFmpc(struct AltParams *, struct AltInputs *, double *altX_all, double *altU_all);
 static void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen, 
         double *eyem, double *Q, double *R, double *Qf, double *zmax, double *zmin, 
         double *x, double *z, int T, int n, int m, int nz, int niters, double kappa);
@@ -182,7 +202,27 @@ void *threadUpdateMeasurements(void *arg)
 
 // Thread - Controller algorithm for Position (with pipe to sensor (PWM) and communication process)
 void *threadControllerPos(void *arg) {
-   
+	const struct PosParams posParams = { 
+		//.A = { 1, PosTs*1e-9, 0, 1 },
+		//.B = { 0, PosTs*1e-9 },
+		//.Q = { 100, 1, 1, 100 },
+		//.Qf = { 100, 1, 1, 100 },
+		//.R = { 10 },
+		//.umax = { 100 },
+		//.umin = { 1 },
+		//.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
+	};
+	struct PosInputs posInputs = { 
+		//.X0_all = { 1, 2, 1.1, 2.2 },
+		//.U0_all = { 10, 10 }, 
+		//.x0 = { 0.9, 1.9 },
+		//.xmax = { 50, 50 },
+		//.xmin = { -50, -50 },
+	};
+	double *posX_all, *posU_all;
+	posX_all = malloc(sizeof(double)*posParams.n*posParams.T);
+    posU_all = malloc(sizeof(double)*posParams.m*posParams.T);
+    
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
 	//structPipe *ptrPipe1 = pipeArrayStruct->pipe1;
@@ -298,7 +338,26 @@ void *threadControllerWatchdogPos(void *arg) {
 
 // Thread - Controller algorithm for Attitude (with pipe to sensor (PWM) and communication process)
 void *threadControllerAtt(void *arg) {
-	double x_all[12] = { 1,2,3,4,5,6,7,8,9,10,11,12 };	//silly measurements for test
+	const struct AttParams attParams = { 
+		//.A = { 1, PosTs*1e-9, 0, 1 },
+		//.B = { 0, PosTs*1e-9 },
+		//.Q = { 100, 1, 1, 100 },
+		//.Qf = { 100, 1, 1, 100 },
+		//.R = { 10 },
+		//.umax = { 100 },
+		//.umin = { 1 },
+		//.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
+	};
+	struct AttInputs attInputs = { 
+		//.X0_all = { 1, 2, 1.1, 2.2 },
+		//.U0_all = { 10, 10 }, 
+		//.x0 = { 0.9, 1.9 },
+		//.xmax = { 50, 50 },
+		//.xmin = { -50, -50 },
+	};
+	double *attX_all, *attU_all;
+	attX_all = malloc(sizeof(double)*attParams.n*attParams.T);
+    attU_all = malloc(sizeof(double)*attParams.m*attParams.T);
     
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
@@ -423,9 +482,9 @@ void *threadControllerAlt(void *arg) {
 		.B = { 0, PosTs*1e-9 },
 		.Q = { 100, 1, 1, 100 },
 		.Qf = { 100, 1, 1, 100 },
-		.R = 10,
-		.umax = 100,
-		.umin = 1,
+		.R = { 10 },
+		.umax = { 100 },
+		.umin = { 1 },
 		.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
 	};
 	struct AltInputs altInputs = { 
@@ -435,7 +494,9 @@ void *threadControllerAlt(void *arg) {
 		.xmax = { 50, 50 },
 		.xmin = { -50, -50 },
 	};
- 
+	double *altX_all, *altU_all;
+	altX_all = malloc(sizeof(double)*altParams.n*altParams.T);
+    altU_all = malloc(sizeof(double)*altParams.m*altParams.T);
     
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
@@ -470,8 +531,11 @@ void *threadControllerAlt(void *arg) {
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 			
 		// Run controller
-		fmpc(&altParams, &altInputs, NULL, NULL);
-		//printf("%i", posTs);
+		//altFmpc(&altParams, &altInputs, altX_all, altU_all);
+		//printf("altX_all\n");
+		//printmat(altX_all, altParams.n, altParams.T);
+		//printf("altU_all\n");
+		//printmat(altU_all, altParams.m, altParams.T);
 			
 		// Set motor PWM signals by writing to the sensor.c process which applies the changes over I2C.
 		//if (write(ptrPipe1->parent[1], value, sizeof(value)) != sizeof(value)) printf("write error in controller to sensor\n");
@@ -564,14 +628,14 @@ void stack_prefault(void){
 	return;
 }
 
-/* function to interact with fast MPC */
-static void fmpc( struct AltParams *altParams, struct AltInputs *altInputs, double *X, double *U){
+/* interact with fast MPC POS */
+static void posFmpc( struct PosParams *posParams, struct PosInputs *posInputs, double *posX_all, double *posU_all){
 
 	/* problem setup */
-    int i, j, m, n, nz, T, niters, k;
+    int i, j, m, n, nz, T, niters;
     double kappa;
     double *dptr, *dptr1, *dptr2;
-    const double *Cdptr;
+    //const double *Cdptr;
     double *A, *B, *At, *Bt, *Q, *R, *Qf, *xmax, *xmin, *umax, *umin, *x;
     double *zmax, *zmin, *zmaxp, *zminp, *X_all, *U_all, *z, *eyen, *eyem, *x0;
     double *X0_all, *U0_all;
@@ -579,226 +643,547 @@ static void fmpc( struct AltParams *altParams, struct AltInputs *altInputs, doub
     double *telapsed;
     clock_t t1, t2;
     
-	nz = altParams->T * (altParams->n + altParams->m);
+	/* Parameters */
+	n = posParams->n;
+	m = posParams->m;
+	T = posParams->T;
+	kappa = posParams->kappa;
+	niters = posParams->niters;
+	A = posParams->A;
+	B = posParams->B;
+	Q = posParams->Q;
+	R = posParams->R;
+	Qf = posParams->Qf;
+	umax = posParams->umax;
+	umin = posParams->umin;
+	nz = T * (n + m);
 	
-	printf("%i", nz);
-    
-    ///* Allocate memory for inputs */
-    //X0_all = malloc(sizeof(double)*params->n*params->T);
-    //U0_all = malloc(sizeof(double)*params->m*params->T);
-    //x0 = malloc(sizeof(double)*params->n*1);
-    //xmax = malloc(sizeof(double)*params->n);
-    //xmin = malloc(sizeof(double)*params->n);
+	/* Inputs */
+	X0_all = posInputs->X0_all;
+	U0_all = posInputs->U0_all;
+	x0 = posInputs->x0;
+	xmax = posInputs->xmax;
+	xmin = posInputs->xmin;
 
-	/////* Reading from the input */
-    ////Cdptr = uPtrs[0];
-    ////for (i = 0; i < T; i++) {   //col-major X0_temp
-        ////for (j = 0; j < n; j++) {
-            ////X0_all[i*n+j] = *Cdptr++;
-//////             *y++ = X0_temp[i*n+j];
-//////             Cdptr++;
-        ////}
-    ////}
-    ////for (i = 0; i < T; i++) {   //col-major U0_temp
-        ////for (j = 0; j < m; j++) {
-            ////U0_all[i*m+j] = *Cdptr++;
-//////             *y++ = U0_temp[i*m+j];
-//////             printf("%f\n", U0_temp[i*m+j]);
-//////             Cdptr++;
-        ////}
-        ////for (j = 0; j < n-m; j++) { //forward the zero-padded part of the coloumn
-//////             *y++ = *Cdptr;
-//////             printf("%f\n", *Cdptr);
-//////             if ( ~isnan(*Cdptr) ) printf("ERROR in input reading!!!\n");
-//////             Cdptr++; //it must be NAN
-            ////Cdptr++;
-        ////}
-    ////}
-    ////for (j = 0; j < n; j++) {   //col-major x0
-        ////x0[j] = *Cdptr++;
-//////         *y++ = x0[i*m+j];
-//////         printf("%f\n", x0[i*m+j]);
-//////         Cdptr++;
-    ////}
-	/////* Reading from exact linearizzation
-    ////REMEMBER TO FREE THE MEMOMRY!!! */
-    ////for (i = 0; i < (n)*(n); i++) {   //col-major A
-        ////A[i] = *Cdptr++;
-    ////}
-////// 
-    ////for (i = 0; i < (n)*m; i++) {   //col-major B
-        ////B[i] = *Cdptr++;
-    ////}
-//////     
-    ////agent_mode = *Cdptr++;
-//////     printf("agent_mode %i \n", agent_mode);
-    ////for (i = 0; i < n; i++) {
-        ////xmin[i] = *Cdptr++;
-//////         printf("xmin %i is %f\n", i, xmin[i]);
-    ////}
-    ////for (i = 0; i < n; i++) {
-        ////xmax[i] = *Cdptr++;
-//////         printf("xmax %i is %f\n", i, xmax[i]);
-    ////}
-//////     printf("---\n"); 
-//////  
-
-    /* outputs */
-    X_all = malloc(sizeof(double)*altParams->n*altParams->T);
-    U_all = malloc(sizeof(double)*altParams->m*altParams->T);
+    /* Outputs */
+    //X_all = malloc(sizeof(double)*n*T);
+    //U_all = malloc(sizeof(double)*m*T);
     telapsed = malloc(sizeof(double));
-    At = malloc(sizeof(double)*altParams->n*altParams->n);
-    Bt = malloc(sizeof(double)*altParams->n*altParams->m);
-    eyen = malloc(sizeof(double)*altParams->n*altParams->n);
-    eyem = malloc(sizeof(double)*altParams->m*altParams->m);
+    At = malloc(sizeof(double)*n*n);
+    Bt = malloc(sizeof(double)*n*m);
+    eyen = malloc(sizeof(double)*n*n);
+    eyem = malloc(sizeof(double)*m*m);
     z = malloc(sizeof(double)*nz);
-    x = malloc(sizeof(double)*altParams->n);
+    x = malloc(sizeof(double)*n);
     zmax = malloc(sizeof(double)*nz);
     zmin = malloc(sizeof(double)*nz);
     zmaxp = malloc(sizeof(double)*nz);
     zminp = malloc(sizeof(double)*nz);
-//     
+     
     /* eyen, eyem */
     dptr = eyen;
-    for (i = 0; i < altParams->n*altParams->n; i++)
+    for (i = 0; i < n*n; i++)
     {
         *dptr = 0;
         dptr++;
     }
-    dptr = dptr-altParams->n*altParams->n;
-    for (i = 0; i < altParams->n; i++)
+    dptr = dptr-n*n;
+    for (i = 0; i < n; i++)
     {
         *dptr = 1;
-        dptr = dptr+altParams->n+1;
+        dptr = dptr+n+1;
     }
-// 
+ 
     dptr = eyem;
-    for (i = 0; i < altParams->m*altParams->m; i++)
+    for (i = 0; i < m*m; i++)
     {
         *dptr = 0;
         dptr++;
     }
-    dptr = dptr-altParams->m*altParams->m;
-    for (i = 0; i < altParams->m; i++)
+    dptr = dptr-m*m;
+    for (i = 0; i < m; i++)
     {
-        *(dptr+i*altParams->m+i) = 1;
+        *(dptr+i*m+i) = 1;
     }
     dptr = x; dptr1 = x0;
-    for (i = 0; i < altParams->n; i++)
+    for (i = 0; i < n; i++)
     {
         *dptr = *dptr1;
         dptr++; dptr1++;
     }
     dptr = z;
-    for (i = 0; i < altParams->T; i++)
+    for (i = 0; i < T; i++)
     {
-        for (j = 0; j < altParams->m; j++)
+        for (j = 0; j < m; j++)
         {
-            *dptr = *(altInputs->U0_all+i*altParams->m+j);
+            *dptr = *(U0_all+i*m+j);
             dptr++;
         }
-        for (j = 0; j < altParams->n; j++)
+        for (j = 0; j < n; j++)
         {
-            *dptr = *(altInputs->X0_all+i*altParams->n+j);
+            *dptr = *(X0_all+i*n+j);
             dptr++; 
         }
     }  
     /* At, Bt */
-    F77_CALL(dgemm)("t","n",&altParams->n,&altParams->n,&altParams->n,&fone,altParams->A,&altParams->n,eyen,&altParams->n,&fzero,At,&altParams->n);
-    F77_CALL(dgemm)("n","t",&altParams->m,&altParams->n,&altParams->m,&fone,eyem,&altParams->m,altParams->B,&altParams->n,&fzero,Bt,&altParams->m);
-// 
+    F77_CALL(dgemm)("t","n",&n,&n,&n,&fone,A,&n,eyen,&n,&fzero,At,&n);
+    F77_CALL(dgemm)("n","t",&m,&n,&m,&fone,eyem,&m,B,&n,&fzero,Bt,&m);
+ 
     /* zmax, zmin */
     dptr1 = zmax;
     dptr2 = zmin;
-    for (i = 0; i < altParams->T; i++)
+    for (i = 0; i < T; i++)
     {
-        for (j = 0; j < altParams->m; j++)
+        for (j = 0; j < m; j++)
         {
-            *dptr1 = (altParams->umax+j);	// exception because altParams-> is one value and not pointer to an array
-            *dptr2 = (altParams->umin+j);
+            *dptr1 = *(umax+j);
+            *dptr2 = *(umin+j);
             dptr1++; dptr2++;
         }
-        for (j = 0; j < altParams->n; j++)
+        for (j = 0; j < n; j++)
         {
-            *dptr1 = *(altInputs->xmax+j);
-            *dptr2 = *(altInputs->xmin+j);
+            *dptr1 = *(xmax+j);
+            *dptr2 = *(xmin+j);
             dptr1++; dptr2++;
         }
     }  
-// 
-    ///* zmaxp, zminp */
-    //for (i = 0; i < nz; i++) zminp[i] = zmin[i] + 0.01*(zmax[i]-zmin[i]);
-    //for (i = 0; i < nz; i++) zmaxp[i] = zmax[i] - 0.01*(zmax[i]-zmin[i]);
-//// 
-    ///* project z */
-    //for (i = 0; i < nz; i++) z[i] = z[i] > zmaxp[i] ? zmaxp[i] : z[i];
-    //for (i = 0; i < nz; i++) z[i] = z[i] < zminp[i] ? zminp[i] : z[i];
-     
-     //printf("A\n");
-     //printmat(A, params->n, params->n);
-     //printf("B\n");
-     //printmat(B, n, m);
-     //printf("At\n");
-     //printmat(At, n, n);
-     //printf("Bt\n");
-     //printmat(Bt, m, n);
-     //printf("n = %i | m = %i | T = %i | niters = %i | kappa = %f\n", params->n, params->m, params->T, params->niters, params->kappa);
-     //printf("eyen\n");
-     //printmat(eyen, n, n);
-     //printf("eyem\n");
-     //printmat(eyem, m, m);
-     //printf("Q\n");
-     //printmat(Q, n, n);
-     //printf("R\n");
-     //printmat(R, m, m);
-     //printf("Qf\n");
-     //printmat(Qf, n, n);
-     //printf("zmax\n");
-     //printmat(zmax, n+m, T);
-     //printf("zmin\n");
-     //printmat(zmin, n+m, T);
-     //printf("x\n");
-     //printmat(x, n, 1);
-     //printf("z\n");
-     //printmat(z, n+m, 1);
  
-    //t1 = clock();
-    //fmpcsolve(A,B,At,Bt,eyen,eyem,Q,R,Qf,zmax,zmin,x,z,T,n,m,nz,niters,kappa);
-    //t2 = clock();
-    //*telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
-////     
-    //dptr = z;
-    //for (i = 0; i < T; i++)
-    //{
-        //for (j = 0; j < m; j++)
-        //{
-            //*(U_all+i*m+j) = *dptr;
-            //*y++ = *dptr;//output
-////             *y++ = 0;//output
-            //dptr++;
-        //}
-        //for (j = 0; j < n; j++)
-        //{
-            //*(X_all+i*n+j) = *dptr;
-            //*y++ = *dptr;//output
-////             *y++ = 0;//output
-            //dptr++;
-        //}
-    //}
-    //*y++ = *telapsed;//output
-//// 
-////     for (i = 0; i < yWidth; i++) {
-////             *y++ = i+1;
-////     }
-////     
-////     free(At); free(Bt); free(eyen); free(eyem);
-////     free(z); free(x); free(zmax); free(zmin);
-////     free(A); free(B);
-////     free(xmin); free(xmax);
+    /* zmaxp, zminp */
+    for (i = 0; i < nz; i++) zminp[i] = zmin[i] + 0.01*(zmax[i]-zmin[i]);
+    for (i = 0; i < nz; i++) zmaxp[i] = zmax[i] - 0.01*(zmax[i]-zmin[i]);
+ 
+    /* project z */
+    for (i = 0; i < nz; i++) z[i] = z[i] > zmaxp[i] ? zmaxp[i] : z[i];
+    for (i = 0; i < nz; i++) z[i] = z[i] < zminp[i] ? zminp[i] : z[i];
     
+    ///* just plotting it! */
+	//printf("A\n");
+	//printmat(A, n, n);
+	//printf("B\n");
+	//printmat(B, n, m);
+	//printf("At\n");
+	//printmat(At, n, n);
+	//printf("Bt\n");
+	//printmat(Bt, m, n);
+	//printf("eyen\n");
+	//printmat(eyen, n, n);
+	//printf("eyem\n");
+	//printmat(eyem, m, m);
+	//printf("Q\n");
+	//printmat(Q, n, n);
+	//printf("R\n");
+	//printmat(R, m, m);
+	//printf("Qf\n");
+	//printmat(Qf, n, n);     
+	//printf("zmax\n");
+	//printmat(zmax, n+m, T);
+	//printf("zmin\n");
+	//printmat(zmin, n+m, T); 
+	//printf("x\n");
+	//printmat(x, n, 1);
+	//printf("z\n");
+	//printmat(z, n+m, 1);
+	//printf("n = %i | m = %i | T = %i | niters = %i | kappa = %f | quiet = %i | nz = %i\n", n, m, T, niters, kappa, quiet, nz);
+ 
+    t1 = clock();
+    fmpcsolve(A,B,At,Bt,eyen,eyem,Q,R,Qf,zmax,zmin,x,z,T,n,m,nz,niters,kappa);
+    t2 = clock();
+    *telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
+    
+    dptr = z;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *(posU_all+i*m+j) = *dptr;
+            dptr++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *(posX_all+i*n+j) = *dptr;
+            dptr++;
+        }
+    }
+    
+    /* free inputs memories */
     //free(X0_all); free(U0_all); free(x0); free(xmax); free(xmin);
     //free(A); free(B); 
-    free(X_all); free(U_all); free(telapsed);
+    /* free outputs memories */
+    //free(X_all); free(U_all); free(telapsed);
+    free(At); free(Bt); free(eyen); free(eyem);
+    free(z); free(x); free(zmax); free(zmin); free(zmaxp); free(zminp);
+    return;
+}
+
+/* interact with fast MPC ATT */
+static void attFmpc( struct AttParams *attParams, struct AttInputs *attInputs, double *attX_all, double *attU_all){
+
+	/* problem setup */
+    int i, j, m, n, nz, T, niters;
+    double kappa;
+    double *dptr, *dptr1, *dptr2;
+    //const double *Cdptr;
+    double *A, *B, *At, *Bt, *Q, *R, *Qf, *xmax, *xmin, *umax, *umin, *x;
+    double *zmax, *zmin, *zmaxp, *zminp, *X_all, *U_all, *z, *eyen, *eyem, *x0;
+    double *X0_all, *U0_all;
+    //int agent_mode = 0;
+    double *telapsed;
+    clock_t t1, t2;
+    
+	/* Parameters */
+	n = attParams->n;
+	m = attParams->m;
+	T = attParams->T;
+	kappa = attParams->kappa;
+	niters = attParams->niters;
+	A = attParams->A;
+	B = attParams->B;
+	Q = attParams->Q;
+	R = attParams->R;
+	Qf = attParams->Qf;
+	umax = attParams->umax;
+	umin = attParams->umin;
+	nz = T * (n + m);
+	
+	/* Inputs */
+	X0_all = attInputs->X0_all;
+	U0_all = attInputs->U0_all;
+	x0 = attInputs->x0;
+	xmax = attInputs->xmax;
+	xmin = attInputs->xmin;
+
+    /* Outputs */
+    //X_all = malloc(sizeof(double)*n*T);
+    //U_all = malloc(sizeof(double)*m*T);
+    telapsed = malloc(sizeof(double));
+    At = malloc(sizeof(double)*n*n);
+    Bt = malloc(sizeof(double)*n*m);
+    eyen = malloc(sizeof(double)*n*n);
+    eyem = malloc(sizeof(double)*m*m);
+    z = malloc(sizeof(double)*nz);
+    x = malloc(sizeof(double)*n);
+    zmax = malloc(sizeof(double)*nz);
+    zmin = malloc(sizeof(double)*nz);
+    zmaxp = malloc(sizeof(double)*nz);
+    zminp = malloc(sizeof(double)*nz);
+     
+    /* eyen, eyem */
+    dptr = eyen;
+    for (i = 0; i < n*n; i++)
+    {
+        *dptr = 0;
+        dptr++;
+    }
+    dptr = dptr-n*n;
+    for (i = 0; i < n; i++)
+    {
+        *dptr = 1;
+        dptr = dptr+n+1;
+    }
+ 
+    dptr = eyem;
+    for (i = 0; i < m*m; i++)
+    {
+        *dptr = 0;
+        dptr++;
+    }
+    dptr = dptr-m*m;
+    for (i = 0; i < m; i++)
+    {
+        *(dptr+i*m+i) = 1;
+    }
+    dptr = x; dptr1 = x0;
+    for (i = 0; i < n; i++)
+    {
+        *dptr = *dptr1;
+        dptr++; dptr1++;
+    }
+    dptr = z;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *dptr = *(U0_all+i*m+j);
+            dptr++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *dptr = *(X0_all+i*n+j);
+            dptr++; 
+        }
+    }  
+    /* At, Bt */
+    F77_CALL(dgemm)("t","n",&n,&n,&n,&fone,A,&n,eyen,&n,&fzero,At,&n);
+    F77_CALL(dgemm)("n","t",&m,&n,&m,&fone,eyem,&m,B,&n,&fzero,Bt,&m);
+ 
+    /* zmax, zmin */
+    dptr1 = zmax;
+    dptr2 = zmin;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *dptr1 = *(umax+j);
+            *dptr2 = *(umin+j);
+            dptr1++; dptr2++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *dptr1 = *(xmax+j);
+            *dptr2 = *(xmin+j);
+            dptr1++; dptr2++;
+        }
+    }  
+ 
+    /* zmaxp, zminp */
+    for (i = 0; i < nz; i++) zminp[i] = zmin[i] + 0.01*(zmax[i]-zmin[i]);
+    for (i = 0; i < nz; i++) zmaxp[i] = zmax[i] - 0.01*(zmax[i]-zmin[i]);
+ 
+    /* project z */
+    for (i = 0; i < nz; i++) z[i] = z[i] > zmaxp[i] ? zmaxp[i] : z[i];
+    for (i = 0; i < nz; i++) z[i] = z[i] < zminp[i] ? zminp[i] : z[i];
+    
+    ///* just plotting it! */
+	//printf("A\n");
+	//printmat(A, n, n);
+	//printf("B\n");
+	//printmat(B, n, m);
+	//printf("At\n");
+	//printmat(At, n, n);
+	//printf("Bt\n");
+	//printmat(Bt, m, n);
+	//printf("eyen\n");
+	//printmat(eyen, n, n);
+	//printf("eyem\n");
+	//printmat(eyem, m, m);
+	//printf("Q\n");
+	//printmat(Q, n, n);
+	//printf("R\n");
+	//printmat(R, m, m);
+	//printf("Qf\n");
+	//printmat(Qf, n, n);     
+	//printf("zmax\n");
+	//printmat(zmax, n+m, T);
+	//printf("zmin\n");
+	//printmat(zmin, n+m, T); 
+	//printf("x\n");
+	//printmat(x, n, 1);
+	//printf("z\n");
+	//printmat(z, n+m, 1);
+	//printf("n = %i | m = %i | T = %i | niters = %i | kappa = %f | quiet = %i | nz = %i\n", n, m, T, niters, kappa, quiet, nz);
+ 
+    t1 = clock();
+    fmpcsolve(A,B,At,Bt,eyen,eyem,Q,R,Qf,zmax,zmin,x,z,T,n,m,nz,niters,kappa);
+    t2 = clock();
+    *telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
+    
+    dptr = z;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *(attU_all+i*m+j) = *dptr;
+            dptr++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *(attX_all+i*n+j) = *dptr;
+            dptr++;
+        }
+    }
+    
+    /* free inputs memories */
+    //free(X0_all); free(U0_all); free(x0); free(xmax); free(xmin);
+    //free(A); free(B); 
+    /* free outputs memories */
+    //free(X_all); free(U_all); free(telapsed);
+    free(At); free(Bt); free(eyen); free(eyem);
+    free(z); free(x); free(zmax); free(zmin); free(zmaxp); free(zminp);
+    return;
+}
+
+/* interact with fast MPC ALT */
+static void altFmpc( struct AltParams *altParams, struct AltInputs *altInputs, double *altX_all, double *altU_all){
+
+	/* problem setup */
+    int i, j, m, n, nz, T, niters;
+    double kappa;
+    double *dptr, *dptr1, *dptr2;
+    //const double *Cdptr;
+    double *A, *B, *At, *Bt, *Q, *R, *Qf, *xmax, *xmin, *umax, *umin, *x;
+    double *zmax, *zmin, *zmaxp, *zminp, *X_all, *U_all, *z, *eyen, *eyem, *x0;
+    double *X0_all, *U0_all;
+    //int agent_mode = 0;
+    double *telapsed;
+    clock_t t1, t2;
+    
+	/* Parameters */
+	n = altParams->n;
+	m = altParams->m;
+	T = altParams->T;
+	kappa = altParams->kappa;
+	niters = altParams->niters;
+	A = altParams->A;
+	B = altParams->B;
+	Q = altParams->Q;
+	R = altParams->R;
+	Qf = altParams->Qf;
+	umax = altParams->umax;
+	umin = altParams->umin;
+	nz = altParams->T * (altParams->n + altParams->m);
+	
+	/* Inputs */
+	X0_all = altInputs->X0_all;
+	U0_all = altInputs->U0_all;
+	x0 = altInputs->x0;
+	xmax = altInputs->xmax;
+	xmin = altInputs->xmin;
+
+    /* Outputs */
+    //X_all = malloc(sizeof(double)*n*T);
+    //U_all = malloc(sizeof(double)*m*T);
+    telapsed = malloc(sizeof(double));
+    At = malloc(sizeof(double)*n*n);
+    Bt = malloc(sizeof(double)*n*m);
+    eyen = malloc(sizeof(double)*n*n);
+    eyem = malloc(sizeof(double)*m*m);
+    z = malloc(sizeof(double)*nz);
+    x = malloc(sizeof(double)*n);
+    zmax = malloc(sizeof(double)*nz);
+    zmin = malloc(sizeof(double)*nz);
+    zmaxp = malloc(sizeof(double)*nz);
+    zminp = malloc(sizeof(double)*nz);
+     
+    /* eyen, eyem */
+    dptr = eyen;
+    for (i = 0; i < n*n; i++)
+    {
+        *dptr = 0;
+        dptr++;
+    }
+    dptr = dptr-n*n;
+    for (i = 0; i < n; i++)
+    {
+        *dptr = 1;
+        dptr = dptr+n+1;
+    }
+ 
+    dptr = eyem;
+    for (i = 0; i < m*m; i++)
+    {
+        *dptr = 0;
+        dptr++;
+    }
+    dptr = dptr-m*m;
+    for (i = 0; i < m; i++)
+    {
+        *(dptr+i*m+i) = 1;
+    }
+    dptr = x; dptr1 = x0;
+    for (i = 0; i < n; i++)
+    {
+        *dptr = *dptr1;
+        dptr++; dptr1++;
+    }
+    dptr = z;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *dptr = *(U0_all+i*m+j);
+            dptr++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *dptr = *(X0_all+i*n+j);
+            dptr++; 
+        }
+    }  
+    /* At, Bt */
+    F77_CALL(dgemm)("t","n",&n,&n,&n,&fone,A,&n,eyen,&n,&fzero,At,&n);
+    F77_CALL(dgemm)("n","t",&m,&n,&m,&fone,eyem,&m,B,&n,&fzero,Bt,&m);
+ 
+    /* zmax, zmin */
+    dptr1 = zmax;
+    dptr2 = zmin;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *dptr1 = *(umax+j);
+            *dptr2 = *(umin+j);
+            dptr1++; dptr2++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *dptr1 = *(xmax+j);
+            *dptr2 = *(xmin+j);
+            dptr1++; dptr2++;
+        }
+    }  
+ 
+    /* zmaxp, zminp */
+    for (i = 0; i < nz; i++) zminp[i] = zmin[i] + 0.01*(zmax[i]-zmin[i]);
+    for (i = 0; i < nz; i++) zmaxp[i] = zmax[i] - 0.01*(zmax[i]-zmin[i]);
+ 
+    /* project z */
+    for (i = 0; i < nz; i++) z[i] = z[i] > zmaxp[i] ? zmaxp[i] : z[i];
+    for (i = 0; i < nz; i++) z[i] = z[i] < zminp[i] ? zminp[i] : z[i];
+    
+    ///* just plotting it! */
+	//printf("A\n");
+	//printmat(A, n, n);
+	//printf("B\n");
+	//printmat(B, n, m);
+	//printf("At\n");
+	//printmat(At, n, n);
+	//printf("Bt\n");
+	//printmat(Bt, m, n);
+	//printf("eyen\n");
+	//printmat(eyen, n, n);
+	//printf("eyem\n");
+	//printmat(eyem, m, m);
+	//printf("Q\n");
+	//printmat(Q, n, n);
+	//printf("R\n");
+	//printmat(R, m, m);
+	//printf("Qf\n");
+	//printmat(Qf, n, n);     
+	//printf("zmax\n");
+	//printmat(zmax, n+m, T);
+	//printf("zmin\n");
+	//printmat(zmin, n+m, T); 
+	//printf("x\n");
+	//printmat(x, n, 1);
+	//printf("z\n");
+	//printmat(z, n+m, 1);
+	//printf("n = %i | m = %i | T = %i | niters = %i | kappa = %f | quiet = %i | nz = %i\n", n, m, T, niters, kappa, quiet, nz);
+ 
+    t1 = clock();
+    fmpcsolve(A,B,At,Bt,eyen,eyem,Q,R,Qf,zmax,zmin,x,z,T,n,m,nz,niters,kappa);
+    t2 = clock();
+    *telapsed = (double)(t2-t1)/(CLOCKS_PER_SEC);
+    
+    dptr = z;
+    for (i = 0; i < T; i++)
+    {
+        for (j = 0; j < m; j++)
+        {
+            *(altU_all+i*m+j) = *dptr;
+            dptr++;
+        }
+        for (j = 0; j < n; j++)
+        {
+            *(altX_all+i*n+j) = *dptr;
+            dptr++;
+        }
+    }
+    
+    /* free inputs memories */
+    //free(X0_all); free(U0_all); free(x0); free(xmax); free(xmin);
+    //free(A); free(B); 
+    /* free outputs memories */
+    //free(X_all); free(U_all); free(telapsed);
     free(At); free(Bt); free(eyen); free(eyem);
     free(z); free(x); free(zmax); free(zmin); free(zmaxp); free(zminp);
     return;
