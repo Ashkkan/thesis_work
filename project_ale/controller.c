@@ -30,12 +30,17 @@
 #include <sched.h>
 #include <sys/mman.h>
 
+#define PI 3.141592653589793
+#define T_max 30
+
+
 /******************************************************************/
 /*******************VARIABLES & PREDECLARATIONS********************/
 /******************************************************************/
 // Static variables for threads
 static float globalSensorData[6]={0,0,0,0,0,0};
 static float globalConstraintsData[6]={0,0,0,0,0,0};
+static double PWM[4] = { 0, 0, 0, 0 };
 static int globalWatchdog=0;
 static const int ione = 1;
 static const int itwo = 2;
@@ -47,13 +52,28 @@ static const double fzero = 0;
 static const double fmone = -1;
 static int quiet = 0;
 
+struct Parameters {
+	double g, mass, L, k, b, k_d, i_xx, i_yy, i_zz, c_m 
+	};
+struct Parameters mdl_param = {
+	.g = 9.81,
+	.mass = 0.47,
+	.L = 0.125,
+	.k = 1.0107e-5,
+	.b = 3.3691e-7,
+	.k_d = 0.25,
+	.i_xx = 12e-4,
+	.i_yy = 12e-4,
+	.i_zz = 23e-4,
+	.c_m = 23.0907
+	};
 static struct PosParams {
-	double A[16], B[8], Q[4], R[4], Qf[16], umax[2], umin[2];
+	double A[16], B[8], Q[16], R[4], Qf[16], umax[2], umin[2];
 	double kappa;
 	int n, m, T, niters;
 	};
 static struct PosInputs {
-	double X0_all[4*30], U0_all[2*30], x0[4], xmax[4], xmin[4];
+	double X0_all[4*T_max], U0_all[2*T_max], x0[4], xmax[4], xmin[4];
 	};
 static struct AttParams {
 	double A[36], B[18], Q[36], R[9], Qf[36], umax[3], umin[3];
@@ -61,7 +81,7 @@ static struct AttParams {
 	int n, m, T, niters;
 	};
 static struct AttInputs {
-	double X0_all[6*30], U0_all[3*30], x0[6], xmax[6], xmin[6];
+	double X0_all[6*T_max], U0_all[3*T_max], x0[6], xmax[6], xmin[6];
 	};
 static struct AltParams {
 	double A[4], B[2], Q[4], R[1], Qf[4], umax[1], umin[1];
@@ -69,13 +89,27 @@ static struct AltParams {
 	int n, m, T, niters;
 	};
 static struct AltInputs {
-	double X0_all[2*30], U0_all[1*30], x0[2], xmax[2], xmin[2];
+	double X0_all[2*T_max], U0_all[1*T_max], x0[2], xmax[2], xmin[2];
 	};
+double *attX_all, *attU_all;
+double *posX_all, *posU_all;
+double *altX_all, *altU_all;
+double thrust = 0.0;
+double phi_dist = 0.0;
+double theta_dist = 0.0;
+double tau_x = 0.0;
+double tau_y = 0.0;
+double tau_z = 0.0;
 
+// These will later come from standalone computer and estimator
+double references[12] = { 0,0,0,	0,0,0,	0,0,0,	0,0,0 };
+double measurements[12] = { 0,0,0,	0,0,0,	NAN,NAN,0,	0,0,0 };
+double disturbances [2] = { 0,0 };	// x and y disturbances
+ 
 // Controller variables
-const static int PosTs = 1e+7; // 1e+7 is 1 sec
-const static int AttTs = 1e+7; // 1e+7 is 1 sec
-const static int AltTs = 1e+8; // 1e+7 is 1 sec
+const static int PosTs = 1e+7; // 1e+7 is 1 sec!
+const static int AttTs = 1e+7; // 1e+7 is 1 sec!
+const static int AltTs = 1e+7; // 1e+7 is 1 sec!
 
 // Predeclarations
 static void *threadUpdateMeasurements(void*);
@@ -114,6 +148,7 @@ void stack_prefault(void);
 static pthread_mutex_t mutexSensorData = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutexConstraintsData = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutexWatchdog = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutexPWM = PTHREAD_MUTEX_INITIALIZER;
 
 
 /******************************************************************/
@@ -203,26 +238,26 @@ void *threadUpdateMeasurements(void *arg)
 // Thread - Controller algorithm for Position (with pipe to sensor (PWM) and communication process)
 void *threadControllerPos(void *arg) {
 	const struct PosParams posParams = { 
-		//.A = { 1, PosTs*1e-9, 0, 1 },
-		//.B = { 0, PosTs*1e-9 },
-		//.Q = { 100, 1, 1, 100 },
-		//.Qf = { 100, 1, 1, 100 },
-		//.R = { 10 },
-		//.umax = { 100 },
-		//.umin = { 1 },
-		//.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
+		.A = { 1,0,0,0,		PosTs*1e-9,1,0,0,		0,0,1,0,		0,0,PosTs*1e-9,1 },
+		.B = { 0,mdl_param.g*PosTs*1e-9,0,0,		0,0,0,-mdl_param.g*PosTs*1e-9 },
+		.Q = { 100,0,0,0,		0,1,0,0,		0,0,100,0,		0,0,0,1 },
+		.Qf = { 100,0,0,0,		0,1,0,0,		0,0,100,0,		0,0,0,1 },
+		.R = { 100,0,		0,100 },
+		.umax = { 6*PI/180, 6*PI/180 },
+		.umin = { -6*PI/180, -6*PI/180 },
+		.n = 4, .m = 2, .T = 2, .niters = 5, .kappa = 1e-3
 	};
-	struct PosInputs posInputs = { 
-		//.X0_all = { 1, 2, 1.1, 2.2 },
-		//.U0_all = { 10, 10 }, 
-		//.x0 = { 0.9, 1.9 },
-		//.xmax = { 50, 50 },
-		//.xmin = { -50, -50 },
-	};
-	double *posX_all, *posU_all;
-	posX_all = malloc(sizeof(double)*posParams.n*posParams.T);
-    posU_all = malloc(sizeof(double)*posParams.m*posParams.T);
+	posX_all = calloc(posParams.n*posParams.T, sizeof(double));
+	posU_all = calloc(posParams.m*posParams.T, sizeof(double));
+	int i;
     
+    //printf("size of a double is %i", sizeof(double));
+   
+    //for (i = 0; i < posParams.n*posParams.T; i++) {
+		//posX_all[i] = i;
+		//}
+		//printmat(posX_all, posParams.n, posParams.T);
+		    
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
 	//structPipe *ptrPipe1 = pipeArrayStruct->pipe1;
@@ -256,7 +291,34 @@ void *threadControllerPos(void *arg) {
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 			
 		// Run controller
+		struct PosInputs posInputs = { 
+			.xmax = { 50, 50, 50, 50 },
+			.xmin = { -50, -50, -50, -50 },
+		};
+		// Warm start before running the controller
+		memcpy(&posInputs.X0_all[0], &posX_all[posParams.n], sizeof(double)*posParams.n*posParams.T-posParams.n); 	
+		memcpy(&posInputs.U0_all[0], &posU_all[posParams.m], sizeof(double)*posParams.m*posParams.T-posParams.m); 	
+		for ( i = posParams.n*posParams.T-posParams.n; i < posParams.n*posParams.T; i++ ) {
+			posInputs.X0_all[i] = 0;
+			}
+		for ( i = posParams.m*posParams.T-posParams.m; i < posParams.m*posParams.T; i++ ) {
+			posInputs.U0_all[i] = 0;
+			}
 			
+		posInputs.x0[0] = measurements[0] - references[0];
+		posInputs.x0[1] = measurements[3] - references[3];
+		posInputs.x0[2] = measurements[1] - references[1];
+		posInputs.x0[3] = measurements[4] - references[4];
+		
+		//posFmpc(&posParams, &posInputs, posX_all, posU_all);
+		//printf("posX_all\n");
+		//printmat(posX_all, posParams.n, posParams.T);
+		//printf("posU_all\n");
+		//printmat(posU_all, posParams.m, posParams.T);
+		
+		phi_dist = posU_all[0]-disturbances[0]/mdl_param.g;		//disturbance compensation for phi
+		theta_dist = posU_all[1]-disturbances[1]/mdl_param.g;	//disturbance compensation for theta
+		
 		// Set motor PWM signals by writing to the sensor.c process which applies the changes over I2C.
 		//if (write(ptrPipe1->parent[1], value, sizeof(value)) != sizeof(value)) printf("write error in controller to sensor\n");
 		//else printf("Controller ID: %d, Sent: %f to Communication\n", (int)getpid(), controllerDataBuffer[0]);
@@ -339,25 +401,19 @@ void *threadControllerWatchdogPos(void *arg) {
 // Thread - Controller algorithm for Attitude (with pipe to sensor (PWM) and communication process)
 void *threadControllerAtt(void *arg) {
 	const struct AttParams attParams = { 
-		//.A = { 1, PosTs*1e-9, 0, 1 },
-		//.B = { 0, PosTs*1e-9 },
-		//.Q = { 100, 1, 1, 100 },
-		//.Qf = { 100, 1, 1, 100 },
-		//.R = { 10 },
-		//.umax = { 100 },
-		//.umin = { 1 },
-		//.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
+		.A = { 1,0,0,0,0,0,		AttTs*1e-9,1,0,0,0,0,	0,0,1,0,0,0,	0,0,AttTs*1e-9,1,0,0,	0,0,0,0,1,0,	0,0,0,0,AttTs*1e-9,1 },
+		.B = { 0,AttTs*1e-9/mdl_param.i_xx,0,0,0,0,	0,0,0,AttTs*1e-9/mdl_param.i_yy,0,0,	0,0,0,0,0,AttTs*1e-9/mdl_param.i_zz },
+		.Q = { 1000,0,0,0,0,0,		0,1,0,0,0,0,	0,0,1000,0,0,0,		0,0,0,1,0,0,	0,0,0,0,1000,0,		0,0,0,0,0,1 },
+		.Qf = { 1000,0,0,0,0,0,		0,1,0,0,0,0,	0,0,1000,0,0,0,		0,0,0,1,0,0,	0,0,0,0,1000,0,		0,0,0,0,0,1 },
+		.R = { 1000,0,0,	0,1000,0,	0,0,1000 },
+		.umax = {  .1, .1, .1 },
+		.umin = { -.1,-.1,-.1 },
+		.n = 6, .m = 3, .T = 2, .niters = 5, .kappa = 1e-3
 	};
-	struct AttInputs attInputs = { 
-		//.X0_all = { 1, 2, 1.1, 2.2 },
-		//.U0_all = { 10, 10 }, 
-		//.x0 = { 0.9, 1.9 },
-		//.xmax = { 50, 50 },
-		//.xmin = { -50, -50 },
-	};
-	double *attX_all, *attU_all;
-	attX_all = malloc(sizeof(double)*attParams.n*attParams.T);
-    attU_all = malloc(sizeof(double)*attParams.m*attParams.T);
+	attX_all = calloc(attParams.n*attParams.T, sizeof(double));
+	attU_all = calloc(attParams.m*attParams.T, sizeof(double));
+    int i;
+    double Lbc_mk4 = 4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k;	// common denominator for all lines of forces2PWM calc
     
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
@@ -392,7 +448,43 @@ void *threadControllerAtt(void *arg) {
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 			
 		// Run controller
+		struct AttInputs attInputs = { 
+			.xmax = { 50, 50 },
+			.xmin = { -50, -50 },
+		};
+		// Warm start before running the controller
+		memcpy(&attInputs.X0_all[0], &attX_all[attParams.n], sizeof(double)*attParams.n*attParams.T-attParams.n); 	
+		memcpy(&attInputs.U0_all[0], &attU_all[attParams.m], sizeof(double)*attParams.m*attParams.T-attParams.m); 	
+		for ( i = attParams.n*attParams.T-attParams.n; i < attParams.n*attParams.T; i++ ) {
+			attInputs.X0_all[i] = 0;
+			}
+		for ( i = attParams.m*attParams.T-attParams.m; i < attParams.m*attParams.T; i++ ) {
+			attInputs.U0_all[i] = 0;
+			}
+		attInputs.x0[0] = measurements[6] - phi_dist;			//phi - coming from the pos controller
+		attInputs.x0[1] = measurements[9] - references[9];		//phidot
+		attInputs.x0[2] = measurements[7] - theta_dist;			//theta - coming from the pos controller
+		attInputs.x0[3] = measurements[10] - references[10];	//thetadot
+		attInputs.x0[4] = measurements[8] - references[8];		//psi
+		attInputs.x0[5] = measurements[11] - references[11];	//psidot
 		
+		//attFmpc(&attParams, &attInputs, attX_all, attU_all);
+		//printf("attX_all\n");
+		//printmat(attX_all, attParams.n, attParams.T);
+		//printf("attU_all\n");
+		//printmat(attU_all, attParams.m, attParams.T);
+		
+		tau_x = attU_all[0];
+		tau_y = attU_all[1];
+		tau_z = attU_all[2];
+		
+		pthread_mutex_lock(&mutexPWM);
+			PWM[0] = sqrt( ( 2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[1] = sqrt( ( 2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+		pthread_mutex_unlock(&mutexPWM);
+
 			
 		// Set motor PWM signals by writing to the sensor.c process which applies the changes over I2C.
 		//if (write(ptrPipe1->parent[1], value, sizeof(value)) != sizeof(value)) printf("write error in controller to sensor\n");
@@ -478,8 +570,8 @@ void *threadControllerAlt(void *arg) {
 		
 	//double x_all[12] = { 1,2,3,4,5,6,7,8,9,10,11,12 };	//silly measurements for test
     const struct AltParams altParams = { 
-		.A = { 1, PosTs*1e-9, 0, 1 },
-		.B = { 0, PosTs*1e-9 },
+		.A = { 1, AltTs*1e-9, 0, 1 },
+		.B = { 0, AltTs*1e-9 },
 		.Q = { 100, 1, 1, 100 },
 		.Qf = { 100, 1, 1, 100 },
 		.R = { 10 },
@@ -487,16 +579,11 @@ void *threadControllerAlt(void *arg) {
 		.umin = { 1 },
 		.n = 2, .m = 1, .T = 2, .niters = 5, .kappa = 1e-3
 	};
-	struct AltInputs altInputs = { 
-		.X0_all = { 1, 2, 1.1, 2.2 },
-		.U0_all = { 10, 10 }, 
-		.x0 = { 0.9, 1.9 },
-		.xmax = { 50, 50 },
-		.xmin = { -50, -50 },
-	};
-	double *altX_all, *altU_all;
-	altX_all = malloc(sizeof(double)*altParams.n*altParams.T);
-    altU_all = malloc(sizeof(double)*altParams.m*altParams.T);
+	altX_all = calloc(altParams.n*altParams.T, sizeof(double));
+	altU_all = calloc(altParams.m*altParams.T, sizeof(double));
+
+    int i;
+	double Lbc_mk4 = 4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k;	// common denominator for all lines of forces2PWM calc
     
 	// Get pipe array and define local variables
 	//pipeArray *pipeArrayStruct = arg;
@@ -530,12 +617,39 @@ void *threadControllerAlt(void *arg) {
 		// Wait until next shot
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 			
+
 		// Run controller
+		struct AltInputs altInputs = { 
+			.xmax = { 50, 50 },
+			.xmin = { -50, -50 },
+		};
+		// Warm start before running the controller
+		memcpy(&altInputs.X0_all[0], &altX_all[altParams.n], sizeof(double)*altParams.n*altParams.T-altParams.n); 	
+		memcpy(&altInputs.U0_all[0], &altU_all[altParams.m], sizeof(double)*altParams.m*altParams.T-altParams.m); 	
+		for ( i = altParams.n*altParams.T-altParams.n; i < altParams.n*altParams.T; i++ ) {
+			altInputs.X0_all[i] = 0;
+			}
+		for ( i = altParams.m*altParams.T-altParams.m; i < altParams.m*altParams.T; i++ ) {
+			altInputs.U0_all[i] = 0;
+			}
+	
+		altInputs.x0[0] = measurements[2] - references[2];
+		altInputs.x0[1] = measurements[5] - references[5];
+		
 		//altFmpc(&altParams, &altInputs, altX_all, altU_all);
 		//printf("altX_all\n");
 		//printmat(altX_all, altParams.n, altParams.T);
 		//printf("altU_all\n");
 		//printmat(altU_all, altParams.m, altParams.T);
+		
+		thrust = (altU_all[0]+mdl_param.g)*mdl_param.mass;	// gravity compensation
+		
+		pthread_mutex_lock(&mutexPWM);
+			PWM[0] = sqrt( ( 2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[1] = sqrt( ( 2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+			PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+		pthread_mutex_unlock(&mutexPWM);	
 			
 		// Set motor PWM signals by writing to the sensor.c process which applies the changes over I2C.
 		//if (write(ptrPipe1->parent[1], value, sizeof(value)) != sizeof(value)) printf("write error in controller to sensor\n");
@@ -618,7 +732,7 @@ void *threadControllerWatchdogAlt(void *arg) {
 
 
 /******************************************************************/
-/****************************FUNCTIONS*****************************/
+/*************************   FUNCTIONS   **************************/
 /******************************************************************/
 
 void stack_prefault(void){
@@ -1837,7 +1951,6 @@ void resdresp(double *rd, double *rp, int T, int n, int nz, double *resd,
     *res = sqrt((*resp)*(*resp)+(*resd)*(*resd));
     return;
 }
-
 
 				
 // Read in PWM value
