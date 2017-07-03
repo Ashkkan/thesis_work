@@ -102,8 +102,8 @@ double tau_y = 0.0;
 double tau_z = 0.0;
 
 // These will later come from standalone computer and estimator
-double references[12] = { 0,0,0,	0,0,0,	0,0,0,	0,0,0 };
-double measurements[12] = { 0,0,0,	0,0,0,	NAN,NAN,0,	0,0,0 };
+double references[12] = { 0,0,0,	0,0,0,	NAN,NAN,0,	0,0,0 };
+double measurements[12] = { 0,0,0,	0,0,0,	0,0,0,	0,0,0 };
 double disturbances [2] = { 0,0 };	// x and y disturbances
  
 // Controller variables
