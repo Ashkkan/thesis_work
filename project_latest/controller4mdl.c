@@ -1,4 +1,7 @@
 // CONTROLLER CODE
+/*
+ * Successful SIL controller.c in Simulink
+ * */
 
 // #include "controller.h"
 // #include "startup.h"
