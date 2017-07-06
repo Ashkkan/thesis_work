@@ -42,7 +42,6 @@ static void *threadSensorFusion (void*);
 static void *threadPWMControl (void*);
 void Qq(double*, double*);
 void dQqdq(double*, double*, double*, double*, double*, double*, double*);
-void printmat(double*, int, int);
 void getOrientationEulers(double*, double*, double*);
 void qNormalize(double*);
 void Sq(double*, double*, double);
@@ -1179,23 +1178,6 @@ void mInverse(double *m, double *mInv){
 	mInv[2] = (m[1] * m[5] - m[2] * m[4]) / (m[0] * m[4] * m[8] - m[0] * m[5] * m[7] - m[1] * m[3] * m[8] + m[1] * m[6] * m[5] + m[2] * m[3] * m[7] - m[2] * m[6] * m[4]);
 	mInv[5] = -(m[0] * m[5] - m[2] * m[3]) / (m[0] * m[4] * m[8] - m[0] * m[5] * m[7] - m[1] * m[3] * m[8] + m[1] * m[6] * m[5] + m[2] * m[3] * m[7] - m[2] * m[6] * m[4]);
 	mInv[8] = (m[0] * m[4] - m[1] * m[3]) / (m[0] * m[4] * m[8] - m[0] * m[5] * m[7] - m[1] * m[3] * m[8] + m[1] * m[6] * m[5] + m[2] * m[3] * m[7] - m[2] * m[6] * m[4]);
-}
-
-// Matrix print function
-void printmat(double *A, int m, int n){
-    double *dptr;
-    int j, i;
-    dptr = A;
-    for (j = 0; j < m; j++)
-    {
-        for (i = 0; i < n; i++)
-        {
-            printf("%6.4f\t", *(dptr+m*i+j));
-        }
-        printf("\n");
-    }
-    //printf("\n");
-    return;
 }
 
 // Load settings file

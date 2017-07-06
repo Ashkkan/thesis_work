@@ -34,6 +34,9 @@ static void *threadPipeSensorToCommunication(void*);
 static void *threadUdpRead(void*);
 static void *threadUdpWrite();
 static void openSocketCommunication(void);
+static void *threadKeyReading( void* );
+// Functions
+static void keyReading( int );
 
 
 // Static variables for threads
@@ -42,11 +45,11 @@ static double sensorData[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 
 static int socketReady=0;
-/*
-static float setpoint[] = {0.0,0.0,0.0}; // coordinates {x,y,z}
-static float constraints[] = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // coordinates {x1,y1,z1,x2,y2,z2,x3,y3,z3}
-static float tuning[] = {0.0,0.0,0.0}; // temporary tuning parameters
-*/
+
+//static float setpoint[] = {0.0,0.0,0.0}; // coordinates {x,y,z}
+//static float constraints[] = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // coordinates {x1,y1,z1,x2,y2,z2,x3,y3,z3}
+//static float tuning[] = {0.0,0.0,0.0}; // temporary tuning parameters
+
 static int fdsocket_read, fdsocket_write;
 static struct sockaddr_in addr_read, addr_write;
 static socklen_t fromlen = sizeof(addr_read);
@@ -70,8 +73,8 @@ void startCommunication(void *arg1, void *arg2)
 	pipeArray pipeArray1 = {.pipe1 = arg1, .pipe2 = arg2 };
 	
 	// Create thread
-	pthread_t threadPipeCtrlToComm, threadPipeSensorToComm, threadUdpR, threadUdpW;
-	int res1, res2, res3, res4;
+	pthread_t threadPipeCtrlToComm, threadPipeSensorToComm, threadUdpR, threadUdpW, threadkeyRead;
+	int res1, res2, res3, res4, res5;
 	
 	// Activate socket communication before creating UDP threads
 	openSocketCommunication();
@@ -80,12 +83,14 @@ void startCommunication(void *arg1, void *arg2)
 	res2=pthread_create(&threadPipeSensorToComm, NULL, &threadPipeSensorToCommunication, arg2);
 	res3=pthread_create(&threadUdpR, NULL, &threadUdpRead, &pipeArray1);
 	res4=pthread_create(&threadUdpW, NULL, &threadUdpWrite, NULL);
+	res5=pthread_create(&threadkeyRead, NULL, &threadKeyReading, NULL);
 	
 	// If threads created successful, start them
 	if (!res1) pthread_join( threadPipeCtrlToComm, NULL);
 	if (!res2) pthread_join( threadPipeSensorToComm, NULL);
 	if (!res3) pthread_join( threadUdpR, NULL);
 	if (!res4) pthread_join( threadUdpW, NULL);
+	if (!res5) pthread_join( threadkeyRead, NULL);
 }
 
 
@@ -193,11 +198,11 @@ static void *threadUdpWrite()
 			pthread_mutex_unlock(&mutexSensorData);
 			//printf("threadUdpWrite: %f\n", agentData[18]);
 			//printf("Communication 2 ID: %d, Recieved Sensor data: %f\n", (int)getpid(), agentData[0]);
-			/*
-			pthread_mutex_lock(&mutexControllerData);
-			memcpy(agentData+sizeof(sensorData), controllerData, sizeof(controllerData));
-			pthread_mutex_unlock(&mutexControllerData);
-			*/
+			
+			//pthread_mutex_lock(&mutexControllerData);
+			//memcpy(agentData+sizeof(sensorData), controllerData, sizeof(controllerData));
+			//pthread_mutex_unlock(&mutexControllerData);
+			
 			
 				
 			sprintf(writeBuff,"A1A6DA%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f",agentData[0] ,agentData[1] ,agentData[2], agentData[3] ,agentData[4] ,agentData[5], agentData[6] ,agentData[7] ,agentData[8], agentData[9] ,agentData[10] ,agentData[11] ,agentData[12] ,agentData[13] ,agentData[14] ,agentData[15],agentData[16] ,agentData[17] ,agentData[18]);
@@ -215,6 +220,17 @@ static void *threadUdpWrite()
 			
 	}
 	return NULL;
+}
+
+// Thread - reading from the keyboard from the stand-alone computer
+static void *threadKeyReading( void *arg ) {
+	
+	while(1) {
+		printf("threadKeyReading \n");
+		
+		keyReading(NULL);
+		
+	}
 }
 
 /******************************************************************/
@@ -260,7 +276,28 @@ static void openSocketCommunication(){
 		perror("bind read");
 	}
 	printf("Socket ready\n");
-	socketReady=1;
+	socketReady=0;
+}
+
+/* Read in PWM value */
+void keyReading( int arg ) {
+	char input_char[10];
+
+	fgets(input_char, 10, stdin);
+	
+	printf("I read %f \n", atof(input_char));
+	
+	/*
+	double input, value[4];
+	printf("Enter PWM value:\n");
+	fgets(input, 10, stdin);
+	value[0] = atof(input);
+	printf("Value: %f\n", value[0]);
+	
+	for (int i=1;i<4;i++){
+		value[i]=value[0];
+	}
+	*/
 }
 
 /*

@@ -157,7 +157,6 @@ static void posFmpc( struct PosParams *, struct PosInputs *, double *posX_all, d
 static void attFmpc( struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all );
 static void altFmpc( struct AltParams *, struct AltInputs *, double *altX_all, double *altU_all );
 
-void printmat(double *A, int m, int n);
 static void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen, 
         double *eyem, double *Q, double *R, double *Qf, double *zmax, double *zmin, 
         double *x, double *z, int T, int n, int m, int nz, int niters, double kappa);
@@ -1560,21 +1559,6 @@ static void altFmpc( struct AltParams *altParams, struct AltInputs *altInputs, d
     return;
 }
 
-void printmat(double *A, int m, int n)
-{
-    double *dptr;
-    int j, i;
-    dptr = A;
-    for (j = 0; j < m; j++)
-    {
-        for (i = 0; i < n; i++)
-        {
-            printf("%5.4f\t", *(dptr+m*i+j));
-        }
-        printf("\n");
-    }
-    return;
-}
 
 void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen,
          double *eyem, double *Q, double *R, double *Qf, double *zmax, double *zmin, 
@@ -2226,14 +2210,4 @@ void resdresp(double *rd, double *rp, int T, int n, int nz, double *resd,
 }
 
 				
-// Read in PWM value
-/*
-	printf("Enter PWM value:\n");
-	fgets(input, 10, stdin);
-	value[0] = atof(input);
-	printf("Value: %f\n", value[0]);
-	
-	for (int i=1;i<4;i++){
-		value[i]=value[0];
-	}
-*/	
+

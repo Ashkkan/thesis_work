@@ -24,5 +24,7 @@ typedef struct _pipeArray{
 	structPipe *pipe2;
 }pipeArray;
 
+void printmat(double *A, int m, int n);
+
 
 #endif
