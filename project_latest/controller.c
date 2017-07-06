@@ -8,8 +8,8 @@
  * 
  */
 
-// #include "controller.h"
-// #include "startup.h"
+#include "controller.h"
+#include "startup.h"
 
 #include <unistd.h>
 #include <pthread.h>
@@ -26,17 +26,15 @@
 #include <math.h>
 #include <arpa/inet.h>
 #include <string.h>
-
 #include <stdlib.h>
-#include <time.h>	//usleep
 
 #include "blas.h"
 #include "lapack.h"
 
 // PREEMPT_RT
-//#include <time.h>
- //#include <sched.h>
- //#include <sys/mman.h>
+#include <time.h>
+#include <sched.h>
+#include <sys/mman.h>
 
 #define PI 3.141592653589793
 #define T_max 10
@@ -144,13 +142,13 @@ const static double AltTs = 0.05*(1e+9); 	//nano for RPi implementation
 // static void *threadUpdateMeasurements(void*);
 // static void *threadUpdateConstraints(void*);
 static void *threadControllerPos(void*);
-// static void *threadControllerWatchdogPos(void*);
+static void *threadControllerWatchdogPos(void*);
 static void *threadControllerAtt(void*);
-// static void *threadControllerWatchdogAtt(void*);
+static void *threadControllerWatchdogAtt(void*);
 static void *threadControllerAlt(void*);
-// static void *threadControllerWatchdogAlt(void*);
+static void *threadControllerWatchdogAlt(void*);
 static void *threadController(void*);
-//static void *threadControllerWatchdog(void*);
+static void *threadControllerWatchdog(void*);
 
 static void controllerPos( struct PosParams *, struct PosInputs *, double *posX_all, double *posU_all );
 static void controllerAtt( struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all );
@@ -191,7 +189,7 @@ static pthread_mutex_t mutexPWM = PTHREAD_MUTEX_INITIALIZER;
 
 
 // Function to start the sensor process threads
-/*
+
  void startController(void *arg1, void *arg2){
  	// Create pipe array
  	pipeArray pipeArrayStruct = {.pipe1 = arg1, .pipe2 = arg2 };
@@ -219,7 +217,7 @@ static pthread_mutex_t mutexPWM = PTHREAD_MUTEX_INITIALIZER;
  	if (!res7) pthread_join( threadCtrlAlt, NULL);
  	if (!res8) pthread_join( threadCtrlWDAlt, NULL);
  }
-*/
+
 
 /******************************************************************/
 /*****************************THREADS******************************/
@@ -504,7 +502,7 @@ void *threadControllerWatchdog(void *arg){
 }
 
 // Thread - Watchdog for Position controller to flag if sampling time is not satisfied.
-/*
+
 void *threadControllerWatchdogPos(void *arg) {	
 	// Get pipe and define local variables
 	struct timespec t;
@@ -558,7 +556,7 @@ void *threadControllerWatchdogPos(void *arg) {
 	
 	return NULL;
 }
-*/
+
 
 // Thread - Controller algorithm for Attitude (with pipe to sensor (PWM) and communication process)
  void *threadControllerAtt(void *arg) {
@@ -672,7 +670,7 @@ void *threadControllerWatchdogPos(void *arg) {
 }
 
 // Thread - Watchdog for Attitude controller to flag if sampling time is not satisfied.
-/*
+
 void *threadControllerWatchdogAtt(void *arg) {	
 	// Get pipe and define local variables
 	struct timespec t;
@@ -726,7 +724,7 @@ void *threadControllerWatchdogAtt(void *arg) {
 	
 	return NULL;
 }
-*/
+
 
 // Thread - Controller algorithm for Altitude (with pipe to sensor (PWM) and communication process)
  void *threadControllerAlt(void *arg) {
@@ -842,7 +840,7 @@ void *threadControllerWatchdogAtt(void *arg) {
 }
 
 // Thread - Watchdog for Altitude controller to flag if sampling time is not satisfied.
-/*
+
 void *threadControllerWatchdogAlt(void *arg) {	
 	// Get pipe and define local variables
 	struct timespec t;
@@ -896,7 +894,7 @@ void *threadControllerWatchdogAlt(void *arg) {
 	
 	return NULL;
 }
-*/
+
 
 /******************************************************************/
 /*************************   FUNCTIONS   **************************/
