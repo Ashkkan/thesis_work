@@ -35,8 +35,8 @@
 
 // PREEMPT_RT
 //#include <time.h>
-// #include <sched.h>
-// #include <sys/mman.h>
+ //#include <sched.h>
+ //#include <sys/mman.h>
 
 #define PI 3.141592653589793
 #define T_max 10
@@ -136,9 +136,9 @@ double disturbances [2] = { 0,0 };	// x and y disturbances
 const static double PosTsSec = 0.05;
 const static double AttTsSec = 0.05;
 const static double AltTsSec = 0.05;
-const static double PosTs = PosTsSec*(1e+9);	//nano for RPi implementation
-const static double AttTs = AttTsSec*(1e+9); 	//nano for RPi implementation
-const static double AltTs = AltTsSec*(1e+9); 	//nano for RPi implementation
+const static double PosTs = 0.05*(1e+9);	//nano for RPi implementation
+const static double AttTs = 0.05*(1e+9); 	//nano for RPi implementation
+const static double AltTs = 0.05*(1e+9); 	//nano for RPi implementation
 
 // Predeclarations
 // static void *threadUpdateMeasurements(void*);
@@ -178,13 +178,11 @@ static void dnudz(double *A, double *B, double *At, double *Bt, double *eyen,
         double *eyem, double *Q, double *R, double *Qf, double *hp, double *rd, 
         double *rp, int T, int n, int m, int nz, double kappa, double *dnu, double *dz);
 
-//void stack_prefault(void);
 
-
-// static pthread_mutex_t mutexSensorData = PTHREAD_MUTEX_INITIALIZER;
-// static pthread_mutex_t mutexConstraintsData = PTHREAD_MUTEX_INITIALIZER;
-// static pthread_mutex_t mutexWatchdog = PTHREAD_MUTEX_INITIALIZER;
- //static pthread_mutex_t mutexPWM = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutexSensorData = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutexConstraintsData = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutexWatchdog = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutexPWM = PTHREAD_MUTEX_INITIALIZER;
 
 
 /******************************************************************/
@@ -903,13 +901,6 @@ void *threadControllerWatchdogAlt(void *arg) {
 /******************************************************************/
 /*************************   FUNCTIONS   **************************/
 /******************************************************************/
-
-//void stack_prefault(void){
-	//unsigned char dummy[MAX_SAFE_STACK];
-	
-	//memset(dummy, 0, MAX_SAFE_STACK);
-	//return;
-//}
 
 /* The same as threadControllerPos but here as a function and not a thread with sample rate */
 static void controllerPos( struct PosParams *posParams, struct PosInputs *posInputs, double *posX_all, double *posU_all ) {
