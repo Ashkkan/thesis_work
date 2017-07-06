@@ -36,8 +36,9 @@ static void *threadUdpRead(void*);
 static void *threadUdpWrite();
 static void openSocketCommunication(void);
 static void *threadKeyReading( void* );
+
 // Functions
-static void keyReading( int );
+static void keyReading( void );
 
 
 // Static variables for threads
@@ -250,11 +251,13 @@ static void *threadUdpWrite()
 static void *threadKeyReading( void *arg ) {
 	
 	while(1) {
-		printf("threadKeyReading \n");
 		
-		keyReading(NULL);
+		//printf("keyReading \n");
+		keyReading();
 		
 	}
+	
+	return NULL;
 }
 
 /******************************************************************/
@@ -304,20 +307,44 @@ static void openSocketCommunication(){
 }
 
 /* Read in PWM value */
-void keyReading( int arg ) {
-	char input_char[10];
+void keyReading( void ) {
+	char input_char[50] = { '\n' };
+	char selection[2] = { '\n' };
 	double keyboardDataBuffer[4]={0,0,0,0}; // {ref_x,ref_y,ref_z,sk}
 	
-	printf("I read %f \n", atof(input_char));
+	printf("Keyboard listening... \n");
+	scanf("%s", selection);
+	printf("I read-> %s \n", selection);
+	
+	
+	switch(selection[0]) {
+		case 'r' :
+			printf("Tell me your ref:\n");
+			input_char[0] = '\n';
+			scanf("%s", input_char[0]);
+			if ( strcmp(input_char[0], 'x') ) {
+				printf("out\n");
+				break;
+			}
+			printf("ref X  ->  %s\n", input_char[0]);
+			scanf("%s", input_char[1]);
+			if ( strcmp(input_char[1], 'x') ) break;
+			printf("ref Y  ->  %s\n", input_char[1]);
+			scanf("%s", input_char[2]);
+			if ( strcmp(input_char[2], 'x') ) break;
+			printf("ref Z  ->  %s\n", input_char[2]);
+			break;
+		default :
+			printf("Invalid try again\n");
+			selection[0] = '\n';
+	}
 	
 	
 	
 	
-	
-	
-	pthread_mutex_lock(&mutexSensorData);
-		memcpy(keyboardData, keyboardDataBuffer, sizeof(keyboardDataBuffer));
-	pthread_mutex_unlock(&mutexSensorData);
+	//pthread_mutex_lock(&mutexSensorData);
+		//memcpy(keyboardData, keyboardDataBuffer, sizeof(keyboardDataBuffer));
+	//pthread_mutex_unlock(&mutexSensorData);
 	
 	
 	
