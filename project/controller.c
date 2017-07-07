@@ -45,7 +45,7 @@
 // Static variables for threads
 // static float globalSensorData[6]={0,0,0,0,0,0};
 // static float globalConstraintsData[6]={0,0,0,0,0,0};
-static double keyboardData[4]= { 0, 0, 0, 0 }; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY]}
+static double keyboardData[4]= { 0, 0, 0, 0 }; // {ref_x,ref_y,ref_z, switch [0=STOP, 1=FLY]}
 static double PWM[4] = { 0, 0, 0, 0 };
 static int globalWatchdog=0;
 static const int ione = 1;
@@ -250,7 +250,6 @@ return NULL;
 
 
 //Thread - Update local variables with any new sensor measurements (pipe from sensor process)
-
  void *threadUpdateMeasurements(void *arg)
  {
  	// Get pipe and define local variables
@@ -266,6 +265,9 @@ return NULL;
  		// Put new sensor data in to global data in controller.c such that controller thread can access and use it.
  		pthread_mutex_lock(&mutexSensorData);
  			memcpy(measurements, sensorDataBuffer, sizeof(sensorDataBuffer)*12/18);
+ 			//inertias[0]=sensorDataBuffer[12];
+ 			//inertias[1]=sensorDataBuffer[13];
+ 			//inertias[2]=sensorDataBuffer[14];
  			disturbances[0]=sensorDataBuffer[15];
  			disturbances[1]=sensorDataBuffer[16];
  			disturbances[2]=sensorDataBuffer[17];

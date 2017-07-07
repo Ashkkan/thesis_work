@@ -248,6 +248,7 @@ static void *threadUdpWrite()
 	return NULL;
 }
 
+
 // Thread - reading from the keyboard from the stand-alone computer
 static void *threadKeyReading( void *arg ) {
 	// Get pipe and define local variables
@@ -263,6 +264,7 @@ static void *threadKeyReading( void *arg ) {
 	
 	return NULL;
 }
+
 
 /******************************************************************/
 /****************************FUNCTIONS*****************************/
