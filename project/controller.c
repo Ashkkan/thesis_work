@@ -365,6 +365,7 @@ void *threadController( void *arg ) {
 			memcpy(ref_formBuffer, references_formation, sizeof(references_formation));
 			triggerFly=(int)keyboardData[3];
 			pwmPrint=(int)keyboardData[4];
+			keyRampRef=(int)keyboardData[11];
 		pthread_mutex_unlock(&mutexConstraintsData);
 		
 		// To ramp the references in x, y and z
