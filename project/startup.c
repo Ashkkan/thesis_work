@@ -83,7 +83,7 @@ int main(int argc, char **argv)
 				case -1:
 					printf("#2 Fork() error\n");
 				break;
-				
+				 
 				case 0:	
 					printf("Communication process ID: %d\n", (int)getpid());
 					
@@ -132,7 +132,7 @@ void printmat(double *A, int m, int n){
     {
         for (i = 0; i < n; i++)
         {
-            printf("%6.4f\t", *(dptr+m*i+j));
+            printf("%3.18f\t", *(dptr+m*i+j));
         }
         printf("\n");
     }
