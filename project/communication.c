@@ -31,7 +31,7 @@
 // Predeclarations
 static void *threadPipeControllerToComm(void*);
 static void *threadPipeSensorToCommunication(void*);
-static void *threadPipeCommunicationtoController(void*);
+//static void *threadPipeCommunicationtoController(void*);
 static void *threadUdpRead(void*);
 static void *threadUdpWrite();
 static void openSocketCommunication(void);
@@ -40,11 +40,10 @@ static void *threadKeyReading( void* );
 // Functions
 static void keyReading( void );
 
-
 // Static variables for threads
 static double controllerData[9]={0,0,0,0,0,0,0,0,0};
 static double sensorData[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-static double keyboardData[4]={0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY]}
+static double keyboardData[10]={0,0,0,0,0,0,0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c}
 
 static int socketReady=0;
 
@@ -54,9 +53,9 @@ static int socketReady=0;
 
 static int fdsocket_read, fdsocket_write;
 static struct sockaddr_in addr_read, addr_write;
-static socklen_t fromlen = sizeof(addr_read);
+//static socklen_t fromlen = sizeof(addr_read);
 static int broadcast=1;
-static char readBuff[BUFFER_LENGTH];
+//static char readBuff[BUFFER_LENGTH];
 static char writeBuff[BUFFER_LENGTH];
 
 static pthread_mutex_t mutexControllerData = PTHREAD_MUTEX_INITIALIZER;
@@ -85,7 +84,7 @@ void startCommunication(void *arg1, void *arg2)
 	res2=pthread_create(&threadPipeSensorToComm, NULL, &threadPipeSensorToCommunication, arg2);
 	res3=pthread_create(&threadUdpR, NULL, &threadUdpRead, &pipeArray1);
 	res4=pthread_create(&threadUdpW, NULL, &threadUdpWrite, NULL);
-	res5=pthread_create(&threadkeyRead, NULL, &threadKeyReading, arg1);
+	res5=pthread_create(&threadkeyRead, NULL, &threadKeyReading, &pipeArray1);
 	
 	// If threads created successful, start them
 	if (!res1) pthread_join( threadPipeCtrlToComm, NULL);
@@ -110,7 +109,7 @@ static void *threadPipeControllerToComm(void *arg)
 	// Loop forever reading/waiting for data
 	while(1){
 		// Read data from controller process
-		//if(read(ptrPipe->parent[0], controllerDataBuffer, sizeof(controllerDataBuffer)) == -1) printf("read error in communication from controller\n");
+		if(read(ptrPipe->parent[0], controllerDataBuffer, sizeof(controllerDataBuffer)) == -1) printf("read error in communication from controller\n");
 		//else printf("Communication ID: %d, Recieved Controller data: %f\n", (int)getpid(), controllerDataBuffer[0]);
 		
 		// Put new data in to global variable in communication.c
@@ -141,32 +140,36 @@ static void *threadPipeSensorToCommunication(void *arg)
 		pthread_mutex_lock(&mutexSensorData);
 			memcpy(sensorData, sensorDataBuffer, sizeof(sensorDataBuffer));
 		pthread_mutex_unlock(&mutexSensorData);
+		
+		sleep(1);
 	}
 	return NULL;
 }
 
 
-// Thread - Pipe Communication to Controller write
-static void *threadPipeCommunicationtoController(void *arg)
-{
-	// Get pipe and define local variables
-	structPipe *ptrPipe = arg;
-	double sensorDataBuffer[19];
+//// Thread - Pipe Communication to Controller write
+//static void *threadPipeCommunicationtoController(void *arg)
+//{
+	//// Get pipe and define local variables
+	//structPipe *ptrPipe = arg;
+	//double sensorDataBuffer[19];
 	
-	// Loop forever reading/waiting for data
-	while(1){
-		// Read data from sensor process
-		//if(write(ptrPipe->parent[1], keyboardData, sizeof(keyboardData)) == -1) printf("Write error in keyboardData communication to controller\n");
-		//else printf("Communication ID: %d, Recieved Sensor data: %f\n", (int)getpid(), sensorDataBuffer[0]);
+	//// Loop forever reading/waiting for data
+	//while(1){
+		//// Read data from sensor process
+		////if(write(ptrPipe->parent[1], keyboardData, sizeof(keyboardData)) == -1) printf("Write error in keyboardData communication to controller\n");
+		////else printf("Communication ID: %d, Recieved Sensor data: %f\n", (int)getpid(), sensorDataBuffer[0]);
 
 		
-		// Put new data in to global variable in communication.c
-		pthread_mutex_lock(&mutexSensorData);
-			memcpy(sensorData, sensorDataBuffer, sizeof(sensorDataBuffer));
-		pthread_mutex_unlock(&mutexSensorData);
-	}
-	return NULL;
-}
+		//// Put new data in to global variable in communication.c
+		//pthread_mutex_lock(&mutexSensorData);
+			//memcpy(sensorData, sensorDataBuffer, sizeof(sensorDataBuffer));
+		//pthread_mutex_unlock(&mutexSensorData);
+		
+		//sleep(1);
+	//}
+	//return NULL;
+//}
 
 
 
@@ -177,7 +180,7 @@ static void *threadUdpRead(void *arg)
 	//pipeArray *pipeArray1 = arg;
 	//structPipe *ptrPipe1 = pipeArray1->pipe1;
 	//structPipe *ptrPipe2 = pipeArray1->pipe2;
-	float udpDataBuffer[6]={2,2,2,2,2,2};
+	//float udpDataBuffer[6]={2,2,2,2,2,2};
 	
 	// Loop forever reading/waiting for UDP data, calling message decoder and sending data to controller
 	while(1){
@@ -252,14 +255,21 @@ static void *threadUdpWrite()
 // Thread - reading from the keyboard from the stand-alone computer
 static void *threadKeyReading( void *arg ) {
 	// Get pipe and define local variables
- 	structPipe *ptrPipe = arg; // arg is between cont and comm
+	pipeArray *pipeArray1 = arg;
+	structPipe *ptrPipe1 = pipeArray1->pipe1;
+	structPipe *ptrPipe2 = pipeArray1->pipe2;
+ 	//structPipe *ptrPipe = arg; // arg is between cont and comm
 	
 	while(1) {
 		keyReading();
 		
 		// Write data to Controller process
-		if (write(ptrPipe->child[1], keyboardData, sizeof(keyboardData)) != sizeof(keyboardData) ) printf("Error in writing keyboardData from Communication to Controller\n");
+		if (write(ptrPipe1->child[1], keyboardData, sizeof(keyboardData)) != sizeof(keyboardData) ) printf("Error in writing keyboardData from Communication to Controller\n");
 		//else printf("Communication ID: %d, Sent: %f to Controller\n", (int)getpid(), keyboardData[0]);
+	
+		// Write data to Sensor process
+		if (write(ptrPipe2->child[1], keyboardData, sizeof(keyboardData)) != sizeof(keyboardData)) printf("Error in writing keyboardData from Communication to Sensor\n");
+		//else printf("Communication ID: %d, Sent: %f to Sensor\n", (int)getpid(), keyboardData[0]);
 	}
 	
 	return NULL;
@@ -316,7 +326,7 @@ static void openSocketCommunication(){
 void keyReading( void ) {
 	char input_char[50] = { '\0' };
 	char selection[2] = { '\0' };
-	double keyboardDataBuffer[4] = {0,0,0,0}; // {ref_x,ref_y,ref_z,switch}
+	//double keyboardDataBuffer[4] = {0,0,0,0}; // {ref_x,ref_y,ref_z,switch}
 	
 	printf("Keyboard listening... \n");
 	scanf("%s", selection);
@@ -328,26 +338,26 @@ void keyReading( void ) {
 			
 			scanf("%s", &input_char[0]);
 			if ( strcmp(&input_char[0], "x" ) == 0 ) { printf("Aborting\n"); break; }
-			keyboardDataBuffer[0] = atof(&input_char[0]);
-			//printf("ref X  ->  %f\n", keyboardDataBuffer[0]);
+			keyboardData[0] = atof(&input_char[0]);
+			//printf("ref X  ->  %f\n", keyboardData[0]);
 			
 			scanf("%s", &input_char[1]);
 			if ( strcmp(&input_char[1], "x" ) == 0 ) { printf("Aborting\n"); break; }
-			keyboardDataBuffer[1] = atof(&input_char[1]);
-			//printf("ref Y  ->  %f\n", keyboardDataBuffer[1]);
+			keyboardData[1] = atof(&input_char[1]);
+			//printf("ref Y  ->  %f\n", keyboardData[1]);
 			
 			scanf("%s", &input_char[2]);
 			if ( strcmp(&input_char[2], "x" ) == 0 ) { printf("Aborting\n"); break; }
-			keyboardDataBuffer[2] = atof(&input_char[2]);
-			//printf("ref Z  ->  %f\n", keyboardDataBuffer[2]);
+			keyboardData[2] = atof(&input_char[2]);
+			//printf("ref Z  ->  %f\n", keyboardData[2]);
 			
-			printf("X = %f, Y = %f and Z = %f,  [y]es or [n]o?\n", keyboardDataBuffer[0], keyboardDataBuffer[1], keyboardDataBuffer[2]);
+			printf("X = %f, Y = %f and Z = %f,  [y]es or [n]o?\n", keyboardData[0], keyboardData[1], keyboardData[2]);
 			scanf("%s", selection);
 			if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting\n"); break; }
 			if ( strcmp(selection, "y" ) == 0 ) {
-				pthread_mutex_lock(&mutexSensorData);
-					memcpy(keyboardData, keyboardDataBuffer, sizeof(keyboardDataBuffer)*3/4);
-				pthread_mutex_unlock(&mutexSensorData);
+				//pthread_mutex_lock(&mutexSensorData);
+					//memcpy(keyboardData, keyboardDataBuffer, sizeof(keyboardDataBuffer)*3/4);
+				//pthread_mutex_unlock(&mutexSensorData);
 				printf("Updated! X = %f, Y = %f, Z = %f and switch is %f\n", keyboardData[0], keyboardData[1], keyboardData[2], keyboardData[3]);
 			}
 			else {
@@ -361,10 +371,10 @@ void keyReading( void ) {
 				printf("It is already STOP you idiot!\n");
 			}
 			else if ( keyboardData[3] == 1 ) {
-				pthread_mutex_lock(&mutexSensorData);
+				//pthread_mutex_lock(&mutexSensorData);
 					keyboardData[3] = 0;
-					keyboardDataBuffer[3] = 0;
-				pthread_mutex_unlock(&mutexSensorData);
+					//keyboardDataBuffer[3] = 0;
+				//pthread_mutex_unlock(&mutexSensorData);
 				printf("Set to STOP now!\n");
 			}
 			break;
@@ -375,10 +385,10 @@ void keyReading( void ) {
 				scanf("%s", selection);
 				if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting\n"); break; }
 				if ( strcmp(selection, "y" ) == 0 ) {
-				pthread_mutex_lock(&mutexSensorData);
+				//pthread_mutex_lock(&mutexSensorData);
 					keyboardData[3] = 1;
-					keyboardDataBuffer[3] = 1;
-				pthread_mutex_unlock(&mutexSensorData);
+					//keyboardDataBuffer[3] = 1;
+				//pthread_mutex_unlock(&mutexSensorData);
 				printf("Set to FLY now!\n");
 				}
 				else {
@@ -393,26 +403,96 @@ void keyReading( void ) {
 		case 'i' :
 				printf("X = %f, Y = %f, Z = %f and switch is %f\n", keyboardData[0], keyboardData[1], keyboardData[2], keyboardData[3]);
 			break;
+			
+		case 'p' :
+			if (keyboardData[4]==0){
+				keyboardData[4]=1;
+				printf("PWM print toggle: %i\n", (int)keyboardData[4]);
+			}
+			else if(keyboardData[4]==1){
+				keyboardData[4]=0;
+				printf("PWM print toggle: %i\n", (int)keyboardData[4]);
+			}
+		break;
+		
+		case 't' :
+			if (keyboardData[5]==0){
+				keyboardData[5]=1;
+				printf("Timer print toggle: %i\n", (int)keyboardData[5]);
+			}
+			else if(keyboardData[5]==1){
+				keyboardData[5]=0;
+				printf("Timer print toggle: %i\n", (int)keyboardData[5]);
+			}
+		break;
+		
+		case 'e' :
+			if (keyboardData[6]==0){
+				keyboardData[6]=1;
+				printf("EKF print toggle: %i\n", (int)keyboardData[6]);
+			}
+			else if(keyboardData[6]==1){
+				keyboardData[6]=0;
+				printf("EKF print toggle: %i\n", (int)keyboardData[6]);
+			}
+		break;
+				
+		case 'n' :
+			if (keyboardData[7]==0){
+				keyboardData[7]=1;
+				printf("Reset EKF/MPC toggle: %i. Set EKF/MPC toggle back to restart\n", (int)keyboardData[7]);
+				if ( keyboardData[3] == 1 ) {
+					keyboardData[3] = 0;
+					printf("Set to STOP now!\n");
+				}
+			}
+			else if(keyboardData[7]==1){
+				keyboardData[7]=0;
+				printf("Reset EKF/MPC toggle: %i. EKF restarted. MPC ready when fly is commanded\n", (int)keyboardData[7]);
+			}
+		break;
+		
+		case 'w' :
+			if (keyboardData[8]==0){
+				keyboardData[8]=1;
+				printf("EKF print 6 states toggle: %i\n", (int)keyboardData[8]);
+			}
+			else if(keyboardData[8]==1){
+				keyboardData[8]=0;
+				printf("EKF print 6 states toggle: %i\n", (int)keyboardData[8]);
+			}
+		break;
+
+		
+		case 'c' : // sensor.c redo calibration function
+			if (keyboardData[9] == 0) {
+				printf("Do you want to recalibrate sensor fusion and EKF? [y]es or [n]o?\n");
+				scanf("%s", selection);
+				if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting\n"); break; }
+				if ( strcmp(selection, "y" ) == 0 ) {
+				//pthread_mutex_lock(&mutexSensorData);
+					keyboardData[9] = 1;
+					//keyboardDataBuffer[3] = 1;
+				//pthread_mutex_unlock(&mutexSensorData);
+				printf("Trying to restart calibration! Remember to deactivate this keyboard command when calibration has been confirmed started.\n");
+				}
+				else {
+					printf("Keeping old calibration data\n");
+				}
+			}
+			else if ( keyboardData[9] == 1 ) {
+				keyboardData[9] = 0;
+				printf("Restart calibration command deactivated. Calibration will finish if it actually started!\n");
+			}
+		break;
 		
 		case 'h' :
-			printf(" [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n");
+			printf(" [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n [p]wm - Print PWM in terminal by toggle on/off\n [t]timers - Print average real time by toggle on/off\n [e]kf - Print EKF xhat (states, inertias and disturbances) by toggle on/off\n [w]ekf 6 states - Print EKF xhat (reference states) by toggle on/off\n [n]ew try - Reset EKF and MPC by toggle on/off\n [c]alibrate sensor fusion and EKF - Redo calibration\n");
 			break;
 				
 		default :
 			printf("Invalid try again\n");
 	}
-	
-	/*
-	double input, value[4];
-	printf("Enter PWM value:\n");
-	fgets(input, 10, stdin);
-	value[0] = atof(input);
-	printf("Value: %f\n", value[0]);
-	
-	for (int i=1;i<4;i++){
-		value[i]=value[0];
-	}
-	*/
 }
 
 /*
