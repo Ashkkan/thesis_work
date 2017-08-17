@@ -68,6 +68,7 @@ int main()
     double X[nt], U[mt], X0[nt], U0[mt], u_[m], x0[n], x_temp[n], x_temp2[n], w_temp[n];
     double Xhist[n*nsteps], Uhist[n*nsteps], Jhist[1*nsteps], thist[1*nsteps], telapsed_sum=0;
 
+	/*	matrix A for masses example	*/
 	static const double dv0[144] = { 0.7627, 0.1149, 0.0025, 0.0, 0.0, 0.0,
 	-0.8994, 0.4202, 0.0193, 0.0002, 0.0, 0.0, 0.1149, 0.7652, 0.1149, 0.0025,
 	0.0, 0.0, 0.4202, -0.8801, 0.4205, 0.0193, 0.0002, 0.0, 0.0025, 0.1149,
@@ -84,6 +85,7 @@ int main()
 	0.7652, 0.1149, 0.0, 0.0, 0.0, 0.0003, 0.0198, 0.4596, 0.0, 0.0, 0.0, 0.0025,
 	0.1149, 0.7627 };
 
+	/*	matrix B for masses example	*/
 	static const double dv1[36] = { 0.1174, -0.1174, -0.0025, -0.0, -0.0, -0.0,
 	0.4398, -0.4401, -0.0196, -0.0002, -0.0, -0.0, 0.0, 0.0025, 0.1199, 0.0,
 	-0.1199, -0.0025, 0.0003, 0.0198, 0.4596, 0.0, -0.4596, -0.0198, 0.0, 0.0,
@@ -345,6 +347,7 @@ int main()
 	-0.0435, -0.4815, 0.3214, -0.0553, 0.1154, 0.2919 };
 	//memcpy(&x[0], &xx[0], n * sizeof(double));
 	
+	/*	Call fmpcsolve()	*/
 	k=0;
 	while (k < nsteps) {
 		//printf("\n");
@@ -467,15 +470,16 @@ int main()
 	//printf("\n");
 	//printmat(x, n ,1);
 	
+	//finding maximum
 	double maximum = 0;
-	  for (i = 0; i < nsteps; i++)
-  {
-    if (thist[i] > maximum)
-    {
-       maximum  = thist[i];
-       //location = c+1;
-    }
-  }
+	for (i = 0; i < nsteps; i++)
+	{
+		if (thist[i] > maximum)
+		{
+		   maximum  = thist[i];
+		   //location = c+1;
+		}
+	}
 	
 	printf("\n telapsed_sum is %15.10f \n", 1/maximum);
 	
@@ -1157,3 +1161,4 @@ void resdresp(double *rd, double *rp, int T, int n, int nz, double *resd,
     *res = sqrt((*resp)*(*resp)+(*resd)*(*resd));
     return;
 }
+

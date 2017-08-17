@@ -70,51 +70,50 @@ int main(int argc, char **argv)
 			if (close(pipeSensorCommunication.parent[0])==-1) printf("close error - parent to child write\n");
 			if (close(pipeSensorCommunication.child[1])==-1) printf("close error - child to parent read\n");
 			
-			//printf("Sensor child pipe ready...\n");
-			
 			// Call Sensor Fusion process
 			startSensors(&pipeSensorController, &pipeSensorCommunication);
 		break;
 		
 		default:
-			printf("Controller process ID: %d\n", (int)getpid());
+		
+			// Create second child process (communication)
+			switch(fork())
+			{
+				// If the fork() failed
+				case -1:
+					printf("#2 Fork() error\n");
+				break;
+				 
+				case 0:	
+					printf("Communication process ID: %d\n", (int)getpid());
+					
+					// Close write and read ends insuring no old data present
+					if (close(pipeCommunicationController.parent[1])==-1) printf("close error - parent to child write\n");
+					if (close(pipeCommunicationController.child[0])==-1) printf("close error - child to parent read\n");
+					if (close(pipeSensorCommunication.parent[1])==-1) printf("close error - parent to child write\n");
+					if (close(pipeSensorCommunication.child[0])==-1) printf("close error - child to parent read\n");
+			
+					// Call Sensor Fusion process within child process
+					startCommunication(&pipeCommunicationController, &pipeSensorCommunication);
+				break;
+				
+				default:
+					printf("Controller process ID: %d\n", (int)getpid());
+					
+					// Call controller threads within main process
+					if (close(pipeSensorController.parent[0])==-1) printf("close error - parent to child write\n");
+					if (close(pipeSensorController.child[1])==-1) printf("close error - child to parent read\n");
+					if (close(pipeCommunicationController.parent[0])==-1) printf("close error - parent to child write\n");
+					if (close(pipeCommunicationController.child[1])==-1) printf("close error - child to parent read\n");
+					
+					startController(&pipeSensorController, &pipeCommunicationController);
+					printf("Controller started...\n");
+				break;
+			}
+		
 		break;
 	}
-	
-	
-	// Create second child process (communication)
-	switch(fork())
-	{
-		// If the fork() failed
-		case -1:
-			printf("#2 Fork() error\n");
-		break;
-		
-		case 0:	
-			printf("Communication process ID: %d\n", (int)getpid());
-			
-			// Close write and read ends insuring no old data present
-			if (close(pipeCommunicationController.parent[1])==-1) printf("close error - parent to child write\n");
-			if (close(pipeCommunicationController.child[0])==-1) printf("close error - child to parent read\n");
-			if (close(pipeSensorCommunication.parent[1])==-1) printf("close error - parent to child write\n");
-			if (close(pipeSensorCommunication.child[0])==-1) printf("close error - child to parent read\n");
-	
-			// Call Sensor Fusion process within child process
-			startCommunication(&pipeCommunicationController, &pipeSensorCommunication);
-		break;
-		
-		default:
-			// Call controller threads within main process
-			if (close(pipeSensorController.parent[0])==-1) printf("close error - parent to child write\n");
-			if (close(pipeSensorController.child[1])==-1) printf("close error - child to parent read\n");
-			if (close(pipeCommunicationController.parent[0])==-1) printf("close error - parent to child write\n");
-			if (close(pipeCommunicationController.child[1])==-1) printf("close error - child to parent read\n");
-			
-			startController(&pipeSensorController, &pipeCommunicationController);
-			printf("Controller started...\n");
-		break;
-	}
-	
+
 	return 0;
 }
 
@@ -123,57 +122,20 @@ int main(int argc, char **argv)
 /******************************************************************/
 /****************************FUNCTIONS*****************************/
 /******************************************************************/
-/*
-void startupProcedure(void *pipe1, void *pipe2){
-	// Create local pointers to the pipes
-	structPipe *ptrPipeSensor = pipe1;
-	structPipe *ptrPipeComm = pipe2;
-	
-	// Close write and read ends insuring no old data present
-	if (close(ptrPipeSensor->child[1])==-1) printf("close error - sensor child to parent write\n");
-	if (close(ptrPipeSensor->parent[0])==-1) printf("close error - sensor parent to child read\n");
-	if (close(ptrPipeComm->child[1])==-1) printf("close error - comm child to parent write\n");
-	if (close(ptrPipeComm->parent[0])==-1) printf("close error - comm parent to child read\n");
 
-	sleep(1);
-		
-	uint8_t buff[1]={1};
-			
-	// Write startup value=1 to sensor process, wait for result and then write ready signal == 2
-	if (write(ptrPipeSensor->parent[1], buff, sizeof(buff)) != sizeof(buff)) printf("write error to sensor process in parent\n");
-	else printf("In parent ID: %d, Sent: %d to sensor process\n", (int)getpid(), buff[0]);
-	if (read(ptrPipeSensor->child[0], buff, 1) == -1) printf("1 read error in parent\n");
-	else printf("In parent ID: %d, Recieved: %d\n", (int)getpid(), buff[0]);
-	if (buff[0]==1){
-		buff[0]=2;
-		if (write(ptrPipeSensor->parent[1], buff, sizeof(buff)) != sizeof(buff)) printf("write error in parent\n");
-		else printf("In parent ID: %d, Sent: %d to sensor process\n", (int)getpid(), buff[0]);
-		printf("Sensor process startup successful\n");
-	}
-	else{
-		printf("Error pipe sensor process startup\n");
-		exit(0);
-	}
-	
-	buff[0]=1;
-	
-	// Write startup value=1 to communication process, wait for result and then write ready signal == 2
-	if (write(ptrPipeComm->parent[1], buff, sizeof(buff)) != sizeof(buff)) printf("write error to communication process in parent\n");
-	else printf("In parent ID: %d, Sent: %d to communication process\n", (int)getpid(), buff[0]);
-	if (read(ptrPipeComm->child[0], buff, 1) == -1) printf("1 read error in parent\n");
-	else printf("In parent ID: %d, Recieved: %d\n", (int)getpid(), buff[0]);
-	if (buff[0]==1){
-		buff[0]=2;
-		if (write(ptrPipeComm->parent[1], buff, sizeof(buff)) != sizeof(buff)) printf("write error in parent\n");
-		else printf("In parent ID: %d, Sent: %d to communication process\n", (int)getpid(), buff[0]);
-		printf("Communication process startup successful\n");
-	}
-	else{
-		printf("Error pipe sensor process startup");
-		exit(0);
-	}
-	
-	sleep(1);	
+// Matrix print function
+void printmat(double *A, int m, int n){
+    double *dptr;
+    int j, i;
+    dptr = A;
+    for (j = 0; j < m; j++)
+    {
+        for (i = 0; i < n; i++)
+        {
+            printf("%3.18f\t", *(dptr+m*i+j));
+        }
+        printf("\n");
+    }
+    //printf("\n");
+    return;
 }
-*/
-
