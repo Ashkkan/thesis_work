@@ -11,7 +11,7 @@ static uint8_t c;
 static uint8_t Gscale = GFS_250DPS; // Specify sensor full scale
 static uint8_t Ascale = AFS_2G; // Specify sensor full scale
 static uint8_t Mscale = MFS_16BITS; // Choose either 14-bit or 16-bit magnetometer resolution
-static uint8_t Mmode = M_8HZ; // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
+static uint8_t Mmode = M_100HZ; // M_8HZ; // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
 static int fdMPU9250, fdAK8963;
 static float fSelfTest[6], aRes, gRes, mRes, gyroBias[3]  = {0, 0, 0}, accelBias[3] = {0, 0, 0}, magBias[3]   = {0, 0, 0}, magScale[3]  = {0, 0, 0}, factoryMagCalibration[3] = {0,0,0};      
 
@@ -638,7 +638,7 @@ void magCalMPU9250(){
 
 	// Make sure resolution has been calculated
 	getMres();
-	printf("4 seconds to get ready followed by 15 seconds of samplingn");
+	printf("4 seconds to get ready followed by 15 seconds of sampling\n");
 	usleep(4000000);
 
 	// shoot for ~fifteen seconds of mag data
@@ -671,6 +671,9 @@ void magCalMPU9250(){
 		  usleep(12000);  // At 100 Hz ODR, new mag data is available every 10 ms
 		}
 	}
+	
+	printf("Mag data collected. 4 seconds put quadrotor back down\n");
+	usleep(4000000);
 
 	// Serial.println("mag x min/max:"); Serial.println(mag_max[0]); Serial.println(mag_min[0]);
 	// Serial.println("mag y min/max:"); Serial.println(mag_max[1]); Serial.println(mag_min[1]);
@@ -798,9 +801,9 @@ void readAccelData(double *accRaw){
 	
 	// Calculate the accleration value into actual g's
 	// This depends on scale being set
-	accRaw[0]=(double)accRawInt16[0] * aRes; // - myIMU.accelBias[0];
-	accRaw[1]=(double)accRawInt16[1] * aRes; // - myIMU.accelBias[1];
-	accRaw[2]=(double)accRawInt16[2] * aRes; // - myIMU.accelBias[2];
+	accRaw[0]=(double)accRawInt16[0] * aRes; //-accelBias[0];
+	accRaw[1]=(double)accRawInt16[1] * aRes; //-accelBias[1];
+	accRaw[2]=(double)accRawInt16[2] * aRes; //-accelBias[2];
 }
 
 // Read gyroscope data
@@ -847,7 +850,7 @@ void readTempData(double *tempRaw){
 }
 
 // Read all sensor data
-void readAllSensorData(double *accRaw, double *gyrRaw, double *magRaw, double *tempRaw){
+int readAllSensorData(double *accRaw, double *gyrRaw, double *magRaw, double *tempRaw){
 	// If intPin goes high, all data registers have new data
 	// On interrupt, check if data ready interrupt
 	if (wiringPiI2CReadReg8(fdMPU9250, INT_STATUS) & 0x01){
@@ -855,6 +858,10 @@ void readAllSensorData(double *accRaw, double *gyrRaw, double *magRaw, double *t
 		readGyroData(gyrRaw);
 		readMagData(magRaw);
 		readTempData(tempRaw);
+		return 1;
+	}
+	else{
+		return 0;
 	}
 }
 

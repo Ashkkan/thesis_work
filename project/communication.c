@@ -10,7 +10,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <sys/time.h>
+//#include <sys/time.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <errno.h>
@@ -20,7 +20,7 @@
 #include <string.h>
 
 // PREEMPT_RT
-//#include <time.h>
+#include <time.h>
 #include <sched.h>
 #include <sys/mman.h>
 
@@ -43,8 +43,11 @@ static void keyReading( void );
 // Static variables for threads
 static double controllerData[9]={0,0,0,0,0,0,0,0,0};
 static double sensorData[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-static double keyboardData[11]={0,0,0,0,0,0,0,0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c}
-
+static double keyboardData[14]={0,0,0,0,0,0,0,0,0,0,0,0.01,0.05,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref, alpha, beta, enable/disable position control}
+static double tuningMpcData[14]={mpcPos_Q_1,mpcPos_Q_2,mpcPos_Q_3,mpcPos_Q_4,mpcPos_Q_5,mpcPos_Q_6,mpcAtt_Q_1,mpcAtt_Q_2,mpcAtt_Q_3,mpcAtt_Q_4,mpcAtt_Q_5,mpcAtt_Q_6,mpcAlt_Q_1,mpcAlt_Q_2}; // Q and Qf mpc {x,xdot,y,ydot,xform,yform,phi,phidot,theta,thetadot,psi,psidot,z,zdot}
+static double tuningMpcDataControl[6]={mpcPos_R_1,mpcPos_R_2,mpcAtt_R_1,mpcAtt_R_2,mpcAtt_R_3,mpcAlt_R_1}; // R mpc {pos,pos,taux,tauy,tauz,alt}
+static double tuningEkfData[18]={ekf_Q_1,ekf_Q_2,ekf_Q_3,ekf_Q_4,ekf_Q_5,ekf_Q_6,ekf_Q_7,ekf_Q_8,ekf_Q_9,ekf_Q_10,ekf_Q_11,ekf_Q_12,ekf_Q_13,ekf_Q_14,ekf_Q_15,ekf_Q_16,ekf_Q_17,ekf_Q_18};
+	
 static int socketReady=0;
 
 //static float setpoint[] = {0.0,0.0,0.0}; // coordinates {x,y,z}
@@ -72,26 +75,40 @@ static pthread_mutex_t mutexSensorData = PTHREAD_MUTEX_INITIALIZER;
 void startCommunication(void *arg1, void *arg2)
 {
 	pipeArray pipeArray1 = {.pipe1 = arg1, .pipe2 = arg2 };
-	
+
 	// Create thread
-	pthread_t threadPipeCtrlToComm, threadPipeSensorToComm, threadUdpR, threadUdpW, threadkeyRead;
-	int res1, res2, res3, res4, res5;
+	pthread_t threadPipeCtrlToComm, threadPipeSensorToComm, threadUdpW, threadkeyRead; // threadUdpR
+	int threadPID1, threadPID2, threadPID4, threadPID5; // threadPID3
 	
 	// Activate socket communication before creating UDP threads
 	openSocketCommunication();
 
-	res1=pthread_create(&threadPipeCtrlToComm, NULL, &threadPipeControllerToComm, arg1);
-	res2=pthread_create(&threadPipeSensorToComm, NULL, &threadPipeSensorToCommunication, arg2);
-	res3=pthread_create(&threadUdpR, NULL, &threadUdpRead, &pipeArray1);
-	res4=pthread_create(&threadUdpW, NULL, &threadUdpWrite, NULL);
-	res5=pthread_create(&threadkeyRead, NULL, &threadKeyReading, &pipeArray1);
+	threadPID1=pthread_create(&threadPipeCtrlToComm, NULL, &threadPipeControllerToComm, arg1);
+	threadPID2=pthread_create(&threadPipeSensorToComm, NULL, &threadPipeSensorToCommunication, arg2);
+	//threadPID3=pthread_create(&threadUdpR, NULL, &threadUdpRead, &pipeArray1);
+	threadPID4=pthread_create(&threadUdpW, NULL, &threadUdpWrite, NULL);
+	threadPID5=pthread_create(&threadkeyRead, NULL, &threadKeyReading, &pipeArray1);
+	
+	// Set up thread scheduler priority for real time tasks
+	struct sched_param paramThread1, paramThread2, paramThread4,paramThread5; // paramThread3
+	paramThread1.sched_priority = PRIORITY_COMMUNICATION_PIPE_CONTROLLER; // set priorities
+	paramThread2.sched_priority = PRIORITY_COMMUNICATION_PIPE_SENSOR;
+	//paramThread3.sched_priority = PRIORITY_COMMUNICATION_UDP_READ;
+	paramThread4.sched_priority = PRIORITY_COMMUNICATION_UDP_WRITE;
+	paramThread5.sched_priority = PRIORITY_COMMUNICATION_KEYBOARD;
+	
+	if(sched_setscheduler(threadPID1, SCHED_FIFO, &paramThread1)==-1) {perror("sched_setscheduler failed for threadPID1");exit(-1);}
+	if(sched_setscheduler(threadPID2, SCHED_FIFO, &paramThread2)==-1) {perror("sched_setscheduler failed for threadPID2");exit(-1);}
+	//if(sched_setscheduler(threadPID3, SCHED_FIFO, &paramThread3)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
+	if(sched_setscheduler(threadPID4, SCHED_FIFO, &paramThread4)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
+	if(sched_setscheduler(threadPID5, SCHED_FIFO, &paramThread5)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
 	
 	// If threads created successful, start them
-	if (!res1) pthread_join( threadPipeCtrlToComm, NULL);
-	if (!res2) pthread_join( threadPipeSensorToComm, NULL);
-	if (!res3) pthread_join( threadUdpR, NULL);
-	if (!res4) pthread_join( threadUdpW, NULL);
-	if (!res5) pthread_join( threadkeyRead, NULL);
+	if (!threadPID1) pthread_join( threadPipeCtrlToComm, NULL);
+	if (!threadPID2) pthread_join( threadPipeSensorToComm, NULL);
+	//if (!threadPID3) pthread_join( threadUdpR, NULL);
+	if (!threadPID4) pthread_join( threadUdpW, NULL);
+	if (!threadPID5) pthread_join( threadkeyRead, NULL);
 }
 
 
@@ -106,8 +123,25 @@ static void *threadPipeControllerToComm(void *arg)
 	structPipe *ptrPipe = arg;
 	float controllerDataBuffer[9];
 	
+	/// Setup timer variables for real time performance check
+	struct timespec t_start,t_stop;
+	
+	/// Average sampling
+	int tsAverageCounter=0;
+	double tsAverageAccum=0;
+	double tsAverage=tsController, tsTrue;
+	int timerPrint=0;
+	
+	/// Lock memory
+	if(mlockall(MCL_CURRENT) == -1){
+		perror("mlockall failed in threadPWMControl");
+	}
+	
 	// Loop forever reading/waiting for data
 	while(1){
+		/// Time it
+		clock_gettime(CLOCK_MONOTONIC ,&t_start); // start elapsed time clock
+		
 		// Read data from controller process
 		if(read(ptrPipe->parent[0], controllerDataBuffer, sizeof(controllerDataBuffer)) == -1) printf("read error in communication from controller\n");
 		//else printf("Communication ID: %d, Recieved Controller data: %f\n", (int)getpid(), controllerDataBuffer[0]);
@@ -117,7 +151,26 @@ static void *threadPipeControllerToComm(void *arg)
 			memcpy(controllerData, controllerDataBuffer, sizeof(controllerDataBuffer));
 		pthread_mutex_unlock(&mutexControllerData);
 		
-		sleep(1);
+		/// Print true sampling rate
+		clock_gettime(CLOCK_MONOTONIC, &t_stop);
+		tsTrue=(t_stop.tv_sec - t_start.tv_sec) + (t_stop.tv_nsec - t_start.tv_nsec) / NSEC_PER_SEC;
+		//printf("Sampling time [s] PWM received: %lf\n",tsTrue);
+		
+		/// Get average sampling time
+		if(tsAverageCounter<50){
+			tsAverageAccum+=tsTrue;
+			tsAverageCounter++;
+		}
+		else{
+			tsAverageAccum/=50;
+			tsAverage=tsAverageAccum;
+			if(timerPrint){
+				printf("Communication pipe from Controller Read: tsAverage %lf tsTrue %lf\n", tsAverage, tsTrue);
+			}
+			tsAverageCounter=0;
+			tsAverageAccum=0;
+			
+		}
 	}
 	return NULL;
 }
@@ -130,8 +183,25 @@ static void *threadPipeSensorToCommunication(void *arg)
 	structPipe *ptrPipe = arg;
 	double sensorDataBuffer[19];
 	
+	/// Setup timer variables for real time performance check
+	struct timespec t_start,t_stop;
+	
+	/// Average sampling
+	int tsAverageCounter=0;
+	double tsAverageAccum=0;
+	double tsAverage=tsController, tsTrue;
+	int timerPrint=0;
+	
+	/// Lock memory
+	if(mlockall(MCL_CURRENT) == -1){
+		perror("mlockall failed in threadPWMControl");
+	}
+	
 	// Loop forever reading/waiting for data
 	while(1){
+		/// Time it
+		clock_gettime(CLOCK_MONOTONIC ,&t_start); // start elapsed time clock
+		
 		// Read data from sensor process
 		if(read(ptrPipe->parent[0], sensorDataBuffer, sizeof(sensorDataBuffer)) == -1) printf("read error in communication from sensor\n");
 		//else printf("Communication ID: %d, Recieved Sensor data: %f\n", (int)getpid(), sensorDataBuffer[0]);
@@ -141,12 +211,31 @@ static void *threadPipeSensorToCommunication(void *arg)
 			memcpy(sensorData, sensorDataBuffer, sizeof(sensorDataBuffer));
 		pthread_mutex_unlock(&mutexSensorData);
 		
-		sleep(1);
+		/// Print true sampling rate
+		clock_gettime(CLOCK_MONOTONIC, &t_stop);
+		tsTrue=(t_stop.tv_sec - t_start.tv_sec) + (t_stop.tv_nsec - t_start.tv_nsec) / NSEC_PER_SEC;
+		//printf("Sampling time [s] PWM received: %lf\n",tsTrue);
+		
+		/// Get average sampling time
+		if(tsAverageCounter<50){
+			tsAverageAccum+=tsTrue;
+			tsAverageCounter++;
+		}
+		else{
+			tsAverageAccum/=50;
+			tsAverage=tsAverageAccum;
+			if(timerPrint){
+				printf("Communication pipe from Sensor Read: tsAverage %lf tsTrue %lf\n", tsAverage, tsTrue);
+			}
+			tsAverageCounter=0;
+			tsAverageAccum=0;
+			
+		}
 	}
 	return NULL;
 }
 
-
+/*
 //// Thread - Pipe Communication to Controller write
 //static void *threadPipeCommunicationtoController(void *arg)
 //{
@@ -170,7 +259,7 @@ static void *threadPipeSensorToCommunication(void *arg)
 	//}
 	//return NULL;
 //}
-
+*/
 
 
 // UDP read thread
@@ -216,11 +305,32 @@ static void *threadUdpRead(void *arg)
 static void *threadUdpWrite()
 {
 	// Local variables
-	double agentData[19]={0,0,0,0,0,0,0,0,0,0,0,0};
+	double agentData[19];
+		
+	/// Setup timer variables for real time performance check
+	struct timespec t, t_start,t_stop;
+	
+	/// Average sampling
+	int tsAverageCounter=0;
+	double tsAverageAccum=0;
+	double tsAverage=tsUdpWrite, tsTrue;
+	int timerPrint=0;
+	
+	/// Lock memory
+	if(mlockall(MCL_CURRENT) == -1){
+		perror("mlockall failed in threadPWMControl");
+	}
+	
+	/// Wait 10 seconds before starting before starting
+	t.tv_sec+=30;
 	
 	// Loop forever streaming data
 	while(1){
-		if(socketReady==1){
+		/// Time it
+		clock_gettime(CLOCK_MONOTONIC ,&t_start); // start elapsed time clock
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL); // sleep for necessary time to reach desired sampling time
+		
+		if(socketReady){
 			// Get sensor and controller data from global variables in communication.c
 			pthread_mutex_lock(&mutexSensorData);
 				memcpy(agentData, sensorData, sizeof(sensorData));
@@ -237,15 +347,39 @@ static void *threadUdpWrite()
 			sprintf(writeBuff,"A1A6DA%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f,%08.3f",agentData[0] ,agentData[1] ,agentData[2], agentData[3] ,agentData[4] ,agentData[5], agentData[6] ,agentData[7] ,agentData[8], agentData[9] ,agentData[10] ,agentData[11] ,agentData[12] ,agentData[13] ,agentData[14] ,agentData[15],agentData[16] ,agentData[17] ,agentData[18]);
 			//printf("%s\n", writeBuff);
 			// Send data over UDP
-			usleep(20000);
 			if (sendto(fdsocket_write, writeBuff, BUFFER_LENGTH, 0, (struct sockaddr*) &addr_write, sizeof(addr_write)) == -1){
 				perror("write");
 			}
 		}
-		else{
-			//printf("Socket not ready\n");
-			usleep(20000);
+		
+		/// Calculate next shot
+		t.tv_nsec += (int)tsUdpWrite;
+		while (t.tv_nsec >= NSEC_PER_SEC) {
+			t.tv_nsec -= NSEC_PER_SEC;
+			t.tv_sec++;
+		}	
+		
+		/// Print true sampling rate
+		clock_gettime(CLOCK_MONOTONIC, &t_stop);
+		tsTrue=(t_stop.tv_sec - t_start.tv_sec) + (t_stop.tv_nsec - t_start.tv_nsec) / NSEC_PER_SEC;
+		//printf("Sampling time [s] UDP : %lf\n",tsTrue);
+		
+		/// Get average sampling time
+		if(tsAverageCounter<50){
+			tsAverageAccum+=tsTrue;
+			tsAverageCounter++;
 		}
+		else{
+			tsAverageAccum/=50;
+			tsAverage=tsAverageAccum;
+			if(timerPrint){
+				printf("UDP Write: tsAverage %lf tsTrue %lf\n", tsAverage, tsTrue);
+			}
+			tsAverageCounter=0;
+			tsAverageAccum=0;
+			
+		}
+
 			
 	}
 	return NULL;
@@ -258,18 +392,46 @@ static void *threadKeyReading( void *arg ) {
 	pipeArray *pipeArray1 = arg;
 	structPipe *ptrPipe1 = pipeArray1->pipe1;
 	structPipe *ptrPipe2 = pipeArray1->pipe2;
- 	//structPipe *ptrPipe = arg; // arg is between cont and comm
+	
+	/// Setup timer variables for real time performance check
+	//struct timespec t_start,t_stop;
+	
+	/// Average sampling
+	//int tsAverageCounter=0;
+	//double tsAverageAccum=0;
+	//double tsTrue; // tsAverage=tsController
+	double keyboardDataController[52];
+	//int timerPrint=0;
+	
+	/// Lock memory
+	if(mlockall(MCL_CURRENT) == -1){
+		perror("mlockall failed in threadPWMControl");
+	}
 	
 	while(1) {
+		///// Time it
+		//clock_gettime(CLOCK_MONOTONIC ,&t_start); // start elapsed time clock
+		
 		keyReading();
 		
+		memcpy(keyboardDataController, keyboardData, sizeof(keyboardData));
+		memcpy(keyboardDataController+14, tuningMpcData, sizeof(tuningMpcData));
+		memcpy(keyboardDataController+28, tuningMpcDataControl, sizeof(tuningMpcDataControl));
+		memcpy(keyboardDataController+34, tuningEkfData, sizeof(tuningEkfData));
+		
+		//printf("%2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f \n\n%2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f\n", keyboardDataController[0], keyboardDataController[1], keyboardDataController[2], keyboardDataController[3], keyboardDataController[4], keyboardDataController[5], keyboardDataController[6], keyboardDataController[7], keyboardDataController[8],keyboardDataController[9], keyboardDataController[10], keyboardDataController[11], keyboardDataController[12], keyboardDataController[13], keyboardDataController[14], keyboardDataController[15], keyboardDataController[16], keyboardDataController[17],keyboardDataController[18], keyboardDataController[19], keyboardDataController[20], keyboardDataController[21], keyboardDataController[22], keyboardDataController[23], keyboardDataController[24], keyboardDataController[25], keyboardDataController[26], keyboardDataController[27], keyboardDataController[28], keyboardDataController[29], keyboardDataController[30], keyboardDataController[31], keyboardDataController[32], keyboardDataController[33], keyboardDataController[34], keyboardDataController[35], keyboardDataController[36], keyboardDataController[37], keyboardDataController[38], keyboardDataController[39], keyboardDataController[40], keyboardDataController[41], keyboardDataController[42], keyboardDataController[43], keyboardDataController[44], keyboardDataController[45], keyboardDataController[46], keyboardDataController[47], keyboardDataController[48], keyboardDataController[49]);
+		
 		// Write data to Controller process
-		if (write(ptrPipe1->child[1], keyboardData, sizeof(keyboardData)) != sizeof(keyboardData) ) printf("Error in writing keyboardData from Communication to Controller\n");
+		if (write(ptrPipe1->child[1], keyboardDataController, sizeof(keyboardDataController)) != sizeof(keyboardDataController) ) printf("Error in writing keyboardData from Communication to Controller\n");
 		//else printf("Communication ID: %d, Sent: %f to Controller\n", (int)getpid(), keyboardData[0]);
 	
 		// Write data to Sensor process
-		if (write(ptrPipe2->child[1], keyboardData, sizeof(keyboardData)) != sizeof(keyboardData)) printf("Error in writing keyboardData from Communication to Sensor\n");
+		if (write(ptrPipe2->child[1], keyboardDataController, sizeof(keyboardDataController)) != sizeof(keyboardDataController)) printf("Error in writing keyboardData from Communication to Sensor\n");
 		//else printf("Communication ID: %d, Sent: %f to Sensor\n", (int)getpid(), keyboardData[0]);
+		
+		///// Print true sampling rate
+		//clock_gettime(CLOCK_MONOTONIC, &t_stop);
+		//tsTrue=(t_stop.tv_sec - t_start.tv_sec) + (t_stop.tv_nsec - t_start.tv_nsec) / NSEC_PER_SEC;
 	}
 	
 	return NULL;
@@ -327,12 +489,40 @@ void keyReading( void ) {
 	char input_char[50] = { '\0' };
 	char selection[2] = { '\0' };
 	double keyboardDataBuffer[4] = {0,0,0,0}; // {ref_x,ref_y,ref_z,switch}
+	double tuningMpcBuffer[14];
+	double tuningMpcBufferControl[6];
+	double tuningEkfBuffer[18];
+	memcpy(tuningMpcBuffer, tuningMpcData, sizeof(tuningMpcData));
+	memcpy(tuningMpcBufferControl, tuningMpcDataControl, sizeof(tuningMpcDataControl));
+	memcpy(tuningEkfBuffer, tuningEkfData, sizeof(tuningEkfData));
+	char *pt;
+	int counter=0;
+	int tuningFlag=1;
 	
 	printf("Keyboard listening... \n");
 	scanf("%s", selection);
 	//printf("I read-> %s \n", selection);
 	
 	switch( selection[0] ) {
+		case 'a' :
+			printf("Tell me your alpha:\n");
+			
+			scanf("%s", &input_char[0]);
+			if ( strcmp(&input_char[0], "x" ) == 0 ) { printf("Aborting\n"); break; }
+			keyboardData[11] = atof(&input_char[0]);
+			printf("alpha ->  %f\n", keyboardData[11]);
+			break;	
+			
+		case 'b' :
+			printf("Tell me your beta:\n");
+			
+			scanf("%s", &input_char[0]);
+			if ( strcmp(&input_char[0], "x" ) == 0 ) { printf("Aborting\n"); break; }
+			keyboardData[12] = atof(&input_char[0]);
+			printf("beta ->  %f\n", keyboardData[12]);
+			break;	
+			
+		
 		case 'r' :
 			printf("Tell me your references:\n");
 			
@@ -362,11 +552,11 @@ void keyReading( void ) {
 				printf("Do you also wanna ramp them?\n");
 				scanf("%s", selection);
 				if ( strcmp(selection, "y" ) == 0 ) { 
-					keyboardData[11] = 1; 
+					keyboardData[10] = 1; 
 					printf("Ramped\n");
 				}
 				else {
-					keyboardData[11] = 0; 
+					keyboardData[10] = 0; 
 					printf("NOT Ramped\n");
 				}
 			}
@@ -413,7 +603,7 @@ void keyReading( void ) {
 		case 'i' :
 				printf("X = %f, Y = %f, Z = %f and switch is %f\n", keyboardData[0], keyboardData[1], keyboardData[2], keyboardData[3]);
 			break;
-			
+
 		case 'p' :
 			if (keyboardData[4]==0){
 				keyboardData[4]=1;
@@ -496,8 +686,397 @@ void keyReading( void ) {
 			}
 		break;
 		
+		// MPC tuning from keyboard		
+		case 'm' :
+			printf("\n [p]osition mpc\n [a]ttitude mpc\n [v]altitude mpc\n [c]urrent tuning values set\n [x]exit\n");
+			scanf("%s", selection);
+			// position tuning
+			if ( strcmp(selection, "p" ) == 0 ) {
+				while (tuningFlag){
+					printf(" [q] state weights\n [r] control weights\n [t]oggle MPC on/off");
+					scanf("%s", selection);
+					// State weights
+					if( strcmp(selection, "q" ) == 0 ){
+						printf("Position MPC Q {x,xdot,y,ydot,xform,yform}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningMpcData[0], tuningMpcData[1], tuningMpcData[2], tuningMpcData[3], tuningMpcData[4], tuningMpcData[5]);
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBuffer[counter]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=6){
+								printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<6;i++){
+									tuningMpcData[i]=tuningMpcBuffer[i];
+								}
+								printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningMpcData[0], tuningMpcData[1], tuningMpcData[2], tuningMpcData[3], tuningMpcData[4], tuningMpcData[5]);
+							}
+							tuningFlag=0;
+						}
+					}
+					
+					// Control weights
+					else if( strcmp(selection, "r" ) == 0 ){
+						printf("Position MPC R {theta_ref, phi_ref}\n Old: {%f,%f}\n New: ", tuningMpcDataControl[0], tuningMpcDataControl[1]); // {pos,pos,taux,tauy,tauz,alt}
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBufferControl[counter]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=2){
+							printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<2;i++){
+									tuningMpcDataControl[i]=tuningMpcBufferControl[i];
+								}
+								printf("Updated: {%f,%f}\n", tuningMpcDataControl[0], tuningMpcDataControl[1]);
+							}
+							tuningFlag=0;
+						}
+					}
+					
+					// Toggle MPC on/off
+					else if( strcmp(selection, "t" ) == 0 ){
+						if (keyboardData[13]==0){
+							keyboardData[13]=1;
+							printf("MPC position toggle: %i\n", (int)keyboardData[13]);
+						}
+						else if(keyboardData[13]==1){
+							keyboardData[13]=0;
+							printf("MPC position toggle: %i\n", (int)keyboardData[13]);
+						}
+					}
+					else{
+						break;
+					}
+					
+				}
+				break;
+			}
+			
+			// attitude tuning
+			else if ( strcmp(selection, "a" ) == 0 ) {
+				while (tuningFlag){
+					printf(" [q] state weights\n [r] control weights\n");
+					scanf("%s", selection);
+					// State weights
+					if( strcmp(selection, "q" ) == 0 ){
+						printf("Attitude MPC Q {phi,phidot,theta,thetadot,psi,psidot}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningMpcData[6], tuningMpcData[7], tuningMpcData[8], tuningMpcData[9], tuningMpcData[10], tuningMpcData[11]);
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBuffer[counter+6]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=6){
+								printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<6;i++){
+									tuningMpcData[i+6]=tuningMpcBuffer[i+6];
+								}
+								printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningMpcData[6], tuningMpcData[7], tuningMpcData[8], tuningMpcData[9], tuningMpcData[10], tuningMpcData[11]);
+							}
+							tuningFlag=0;
+						}
+					} // "Updated: {%7.15f,%7.15f,%7.15f,%7.15f,%7.15f,%7.15f}\n"
+					
+					// Control weights
+					else if( strcmp(selection, "r" ) == 0 ){
+						printf("Attitude MPC R {taux,tauy,tauz}\n Old: {%f,%f,%f}\n New: ", tuningMpcDataControl[2], tuningMpcDataControl[3], tuningMpcDataControl[4]); // {pos,pos,taux,tauy,tauz,alt}
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBufferControl[counter+2]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=3){
+								printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<3;i++){
+									tuningMpcDataControl[i+2]=tuningMpcBufferControl[i+2];
+								}
+								printf("Updated: {%f,%f,%f}\n", tuningMpcDataControl[2], tuningMpcDataControl[3], tuningMpcDataControl[4]);
+							}
+							tuningFlag=0;
+						}
+					}
+					else{
+						break;
+					}
+				}
+			}
+			
+			// altitude tuning
+			else if ( strcmp(selection, "v" ) == 0 ) {
+				while (tuningFlag){
+					printf(" [q]state weights\n [r]control weights\n");
+					scanf("%s", selection);
+					// State weights
+					if( strcmp(selection, "q" ) == 0 ){		
+						printf("Altitude MPC Q {z,zdot}\n Old: {%f,%f}\n New: ", tuningMpcData[12], tuningMpcData[13]);
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBuffer[counter+12]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=2){
+								printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+								scanf("%s", selection);
+								if ( strcmp(selection, "y" ) == 0 ){
+									counter=0;
+									tuningFlag=1;
+								}
+								else{
+									tuningFlag=0;
+								}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<2;i++){
+									tuningMpcData[i+12]=tuningMpcBuffer[i+12];
+								}
+								printf("Updated: {%f,%f}\n", tuningMpcData[12], tuningMpcData[13]);
+							}
+							tuningFlag=0;
+						}
+					}
+					
+					// Control weights
+					else if( strcmp(selection, "r" ) == 0 ){
+						printf("Altitude MPC R {thrust}\n Old: {%f}\n New: ", tuningMpcDataControl[5]); // {pos,pos,taux,tauy,tauz,alt}
+						scanf("%s", input_char);
+						pt = strtok(input_char, ",");
+						while (pt != NULL){
+							tuningMpcBufferControl[counter+5]=atof(pt);
+							pt = strtok(NULL, ",");
+							counter++;
+						}
+						if (counter!=1){
+							printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+						}
+						else {
+							printf("\nAccept [y]? Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								for (int i=0;i<1;i++){
+									tuningMpcDataControl[i+5]=tuningMpcBufferControl[i+5];
+								}
+								printf("Updated: {%f}\n", tuningMpcDataControl[5]);
+							}
+							tuningFlag=0;
+						}
+					}
+					else{
+						break;
+					}
+				}
+			}
+			
+			// show current tuning values
+			else if ( strcmp(selection, "c" ) == 0 ) {			
+				printf("Current Q {x,xdot,y,ydot,xform,yform,phi,phidot,theta,thetadot,psi,psidot,z,zdot}\n{%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f}\n", tuningMpcData[0], tuningMpcData[1], tuningMpcData[2], tuningMpcData[3], tuningMpcData[4], tuningMpcData[5], tuningMpcData[6], tuningMpcData[7], tuningMpcData[8], tuningMpcData[9], tuningMpcData[10], tuningMpcData[11], tuningMpcData[12], tuningMpcData[13]);
+				printf("Current R {theta_ref,phi_ref,taux,tauy,tauz,thrust}\n{%f,%f,%f,%f,%f,%f}\n", tuningMpcDataControl[0], tuningMpcDataControl[1], tuningMpcDataControl[2], tuningMpcDataControl[3], tuningMpcDataControl[4], tuningMpcDataControl[5]);
+				
+				break;
+			}
+			
+			else{ printf("Aborting\n"); break; }
+		
+		break;
+		
+		// EKF tuning (Q)
+		case 'q' :
+			printf("\n [p]osition ekf\n [a]ttitude ekf\n [d]isturbance ekf\n [c]urrent ekf Q values set\n [x]exit\n");
+			scanf("%s", selection);
+			// position tuning
+			if ( strcmp(selection, "p" ) == 0 ) {
+				while (tuningFlag){
+					printf("Position ekf Q {x,y,z,xdot,ydot,zdot}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningEkfData[0], tuningEkfData[1], tuningEkfData[2], tuningEkfData[3], tuningEkfData[4], tuningEkfData[5]);
+					scanf("%s", input_char);
+					pt = strtok(input_char, ",");
+					while (pt != NULL){
+						tuningEkfBuffer[counter]=atof(pt);
+						pt = strtok(NULL, ",");
+						counter++;
+					}
+					if (counter!=6){
+						printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+						scanf("%s", selection);
+						if ( strcmp(selection, "y" ) == 0 ){
+							counter=0;
+							tuningFlag=1;
+						}
+						else{
+							tuningFlag=0;
+						}
+					}
+					else {
+						printf("\nAccept [y]? Else press any button to cancel\n");
+						scanf("%s", selection);
+						if ( strcmp(selection, "y" ) == 0 ){
+							for (int i=0;i<6;i++){
+								tuningEkfData[i]=tuningEkfBuffer[i];
+							}
+							printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningEkfData[0], tuningEkfData[1], tuningEkfData[2], tuningEkfData[3], tuningEkfData[4], tuningEkfData[5]);
+						}
+						tuningFlag=0;
+					}			
+				}
+				break;
+			}
+			
+			// attitude tuning
+			else if ( strcmp(selection, "a" ) == 0 ) {
+				while (tuningFlag){
+					printf("Attitude ekf Q {phi,theta,psi,phidot,thetadot,psidot}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningEkfData[6], tuningEkfData[7], tuningEkfData[8], tuningEkfData[9], tuningEkfData[10], tuningEkfData[11]);
+					scanf("%s", input_char);
+					pt = strtok(input_char, ",");
+					while (pt != NULL){
+						tuningEkfBuffer[counter+6]=atof(pt);
+						pt = strtok(NULL, ",");
+						counter++;
+					}
+					if (counter!=6){
+						printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+						scanf("%s", selection);
+						if ( strcmp(selection, "y" ) == 0 ){
+							counter=0;
+							tuningFlag=1;
+						}
+						else{
+							tuningFlag=0;
+						}
+					}
+					else {
+						printf("\nAccept [y]? Else press any button to cancel\n");
+						scanf("%s", selection);
+						if ( strcmp(selection, "y" ) == 0 ){
+							for (int i=0;i<6;i++){
+								tuningEkfData[i+6]=tuningEkfBuffer[i+6];
+							}
+							printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningEkfData[6], tuningEkfData[7], tuningEkfData[8], tuningEkfData[9], tuningEkfData[10], tuningEkfData[11]);
+						}
+						tuningFlag=0;
+					}
+				}
+				break;
+			}
+			
+			// disturbance tuning
+			else if ( strcmp(selection, "d" ) == 0 ) {
+				while (tuningFlag){
+					printf("Disturbance ekf Q {dist_x,dist_y,dist_z,dist_taux,dist_tauy,dist_tauz}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningEkfData[12], tuningEkfData[13], tuningEkfData[14], tuningEkfData[15], tuningEkfData[16], tuningEkfData[17]);
+					scanf("%s", input_char);
+					pt = strtok(input_char, ",");
+					while (pt != NULL){
+						tuningEkfBuffer[counter+12]=atof(pt);
+						pt = strtok(NULL, ",");
+						counter++;
+					}
+					if (counter!=6){
+							printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+							scanf("%s", selection);
+							if ( strcmp(selection, "y" ) == 0 ){
+								counter=0;
+								tuningFlag=1;
+							}
+							else{
+								tuningFlag=0;
+							}
+					}
+					else {
+						printf("\nAccept [y]? Else press any button to cancel\n");
+						scanf("%s", selection);
+						if ( strcmp(selection, "y" ) == 0 ){
+							for (int i=0;i<6;i++){
+								tuningEkfData[i+12]=tuningEkfBuffer[i+12];
+							}
+							printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningEkfData[12], tuningEkfData[13], tuningEkfData[14], tuningEkfData[15], tuningEkfData[16], tuningEkfData[17]);
+						}
+						tuningFlag=0;
+					}
+				}
+				break;
+			}
+		
+			// show current tuning values
+			else if ( strcmp(selection, "c" ) == 0 ) {			
+				printf("Current ekf Q {x,y,z,xdot,ydot,zdot,phi,theta,psi,phidot,thetadot,psidot,dist_x,dist_y,dist_z,dist_taux,dist_tauy,dist_tauz}\n{%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f}\n", tuningEkfData[0], tuningEkfData[1], tuningEkfData[2], tuningEkfData[3], tuningEkfData[4], tuningEkfData[5], tuningEkfData[6], tuningEkfData[7], tuningEkfData[8], tuningEkfData[9], tuningEkfData[10], tuningEkfData[11], tuningEkfData[12], tuningEkfData[13], tuningEkfData[14], tuningEkfData[15], tuningEkfData[16], tuningEkfData[17]);			
+				break;
+			}
+			
+			else{ printf("Aborting\n"); break; }
+
+		break;
+		
 		case 'h' :
-			printf(" [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n [p]wm - Print PWM in terminal by toggle on/off\n [t]timers - Print average real time by toggle on/off\n [e]kf - Print EKF xhat (states, inertias and disturbances) by toggle on/off\n [w]ekf 6 states - Print EKF xhat (reference states) by toggle on/off\n [n]ew try - Reset EKF and MPC by toggle on/off\n [c]alibrate sensor fusion and EKF - Redo calibration\n");
+			printf("\n [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n [p]wm - Print PWM in terminal by toggle on/off\n [t]timers - Print average real time by toggle on/off\n [e]kf - Print EKF xhat (states, inertias and disturbances) by toggle on/off\n [w]ekf 6 states - Print EKF xhat (reference states) by toggle on/off\n [n]ew try - Reset EKF and MPC by toggle on/off\n [c]alibrate sensor fusion and EKF - Redo calibration\n [a]lpha magnetometer outlier forgetting factor\n [b]eta Madgwick Filter gain\n [m]pc settings\n [q]ekf settings\n");
 			break;
 				
 		default :
