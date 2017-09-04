@@ -55,9 +55,10 @@
 // Static variables for threads
 // static float globalSensorData[6]={0,0,0,0,0,0};
 // static float globalConstraintsData[6]={0,0,0,0,0,0};
-static double keyboardData[14]={0,0,0,0,0,0,0,0,0,0,0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref, alpha, beta, mpc position toggle}
+static double keyboardData[18]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref, alpha, beta, mpc position toggle, ff,save data,pid_trigger, pwm range setting}
 static double tuningMpcData[14]={mpcPos_Q_1,mpcPos_Q_2,mpcPos_Q_3,mpcPos_Q_4,mpcPos_Q_5,mpcPos_Q_6,mpcAtt_Q_1,mpcAtt_Q_2,mpcAtt_Q_3,mpcAtt_Q_4,mpcAtt_Q_5,mpcAtt_Q_6,mpcAlt_Q_1,mpcAlt_Q_2}; // Q and Qf mpc {x,xdot,y,ydot,xform,yform,phi,phidot,theta,thetadot,psi,psidot,z,zdot}
 static double tuningMpcDataControl[6]={mpcPos_R_1,mpcPos_R_2,mpcAtt_R_1,mpcAtt_R_2,mpcAtt_R_3,mpcAlt_R_1}; // R mpc {pos,pos,taux,tauy,tauz,alt}
+static double tuningPidData[6]={pid_gyro_kp,pid_gyro_ki,pid_gyro_kd,pid_angle_kp,pid_angle_ki,pid_angle_kd}; // PID gains
 
 static double PWM[4] = { 0, 0, 0, 0 };
 //static int globalWatchdog=0;
@@ -72,15 +73,15 @@ static const double fmone = -1;
 static int quiet = 0;
 
 // Outputs
-double *attX_all, *attU_all;
-double *posX_all, *posU_all;
-double *altX_all, *altU_all;
-double thrust = 0.0;
-double phi_dist = 0.0;
-double theta_dist = 0.0;
-double tau_x = 0.0;
-double tau_y = 0.0;
-double tau_z = 0.0;
+static double *attX_all, *attU_all;
+static double *posX_all, *posU_all;
+static double *altX_all, *altU_all;
+static double thrust = 0.0;
+static double phi_dist = 0.0;
+static double theta_dist = 0.0;
+static double tau_x = 0.0;
+static double tau_y = 0.0;
+static double tau_z = 0.0;
 
 struct Parameters mdl_param = {
 	.g = par_g,
@@ -141,12 +142,14 @@ static void *threadUpdateConstraintsSettingsReferences(void*);
 // static void *threadControllerWatchdogAlt(void*);
 
 static void controllerPos( struct PosParams *, struct PosInputs *, double *posX_all, double *posU_all, double *meas, double *ref, double *ref_form, double *dist);
-static void controllerAtt( struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all, double *meas, double *ref, double *dist);
+static void controllerAtt( struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all, double *meas, double *ref, double *dist, int, double, double);
 static void controllerAlt( struct AltParams *, struct AltInputs *, double *altX_all, double *altU_all, double *attU_all, double *meas, double *ref, double *dist);
 static void posFmpc( struct PosParams *, struct PosInputs *, double *posX_all, double *posU_all );
 static void attFmpc( struct AttParams *, struct AttInputs *, double *attX_all, double *attU_all );
 static void altFmpc( struct AltParams *, struct AltInputs *, double *altX_all, double *altU_all );
 //static void refGen_formation( double *x_agent1, double *x_agent2 );
+
+static double controllerPID(double, double*, double*, double, double, double, double);
 
 // FMPC functions
 static void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen, 
@@ -239,10 +242,11 @@ void *threadUpdateConstraintsSettingsReferences(void *arg) {
 	//structPipe *ptrPipe2 = pipeArrayStruct->pipe2;	// to comm
 	structPipe *ptrPipe = arg; // to comm
 
-	double communicationDataBuffer[52];
-	double keyboardDataBuffer[14];
+	double communicationDataBuffer[62];
+	double keyboardDataBuffer[18];
 	double tuningMpcBuffer[14];
 	double tuningMpcBufferControl[6];
+	double tuningPidBuffer[6];
 	
 	//// Loop forever streaming data
 	while(1){
@@ -250,23 +254,23 @@ void *threadUpdateConstraintsSettingsReferences(void *arg) {
 		if (read(ptrPipe->child[0], communicationDataBuffer, sizeof(communicationDataBuffer)) != sizeof(communicationDataBuffer) ) printf("Error in reading 'keyboardData' from Communication to Controller\n");
 		//else printf("Controller ID: %d, Read: %f from Communication\n", (int)getpid(), keyboardDataBuffer[0]);
 		
-		memcpy(keyboardDataBuffer, communicationDataBuffer, sizeof(communicationDataBuffer)*14/52);
-		memcpy(tuningMpcBuffer, communicationDataBuffer+14, sizeof(communicationDataBuffer)*14/52);
-		memcpy(tuningMpcBufferControl, communicationDataBuffer+28, sizeof(communicationDataBuffer)*6/52);
-		
+		memcpy(keyboardDataBuffer, communicationDataBuffer, sizeof(communicationDataBuffer)*18/62);
+		memcpy(tuningMpcBuffer, communicationDataBuffer+18, sizeof(communicationDataBuffer)*14/62);
+		memcpy(tuningMpcBufferControl, communicationDataBuffer+32, sizeof(communicationDataBuffer)*6/62);
+		memcpy(tuningPidBuffer, communicationDataBuffer+56, sizeof(communicationDataBuffer)*6/62);
 		
 		//printf("--- %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f\n", communicationDataBuffer[0], communicationDataBuffer[1], communicationDataBuffer[2], communicationDataBuffer[3], communicationDataBuffer[4], communicationDataBuffer[5], communicationDataBuffer[6], communicationDataBuffer[7], communicationDataBuffer[8],communicationDataBuffer[9], communicationDataBuffer[10], communicationDataBuffer[11], communicationDataBuffer[12], communicationDataBuffer[13], communicationDataBuffer[14], communicationDataBuffer[15], communicationDataBuffer[16], communicationDataBuffer[17],communicationDataBuffer[18], communicationDataBuffer[19], communicationDataBuffer[20], communicationDataBuffer[21], communicationDataBuffer[22], communicationDataBuffer[23], communicationDataBuffer[24], communicationDataBuffer[25], communicationDataBuffer[26]);
 		
 		//printf("Q {x,xdot,y,ydot,xform,yform,phi,phidot,theta,thetadot,psi,psidot,z,zdot}\n{%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f}\n", tuningMpcBuffer[0], tuningMpcBuffer[1], tuningMpcBuffer[2], tuningMpcBuffer[3], tuningMpcBuffer[4], tuningMpcBuffer[5], tuningMpcBuffer[6], tuningMpcBuffer[7], tuningMpcBuffer[8], tuningMpcBuffer[9], tuningMpcBuffer[10], tuningMpcBuffer[11], tuningMpcBuffer[12], tuningMpcBuffer[13]);
-		//printf("R {theta_ref,phi_ref,taux,tauy,tauz,thrust}\n{%f,%f,%f,%f,%f,%f\n", tuningMpcBufferControl[0], tuningMpcBufferControl[1], tuningMpcBufferControl[2], tuningMpcBufferControl[3], tuningMpcBufferControl[4], tuningMpcBufferControl[5]);
-					
+		//printf("R {theta_ref,phi_ref,taux,tauy,tauz,thrust}\n{%f,%f,%f,%f,%f,%f\n", tuningMpcBufferControl[0], tuningMpcBufferControl[1], tuningMpcBufferControl[2], tuningMpcBufferControl[3], tuningMpcBufferControl[4], tuningMpcBufferControl[5]);				
 		
 		// Put new constraints data in to global data in controller.c such that controller thread can access and use it.
 		pthread_mutex_lock(&mutexConstraintsData);
-			memcpy(references, keyboardDataBuffer, sizeof(keyboardDataBuffer)*3/14); // {ref_x,ref_y,ref_z}
+			memcpy(references, keyboardDataBuffer, sizeof(keyboardDataBuffer)*3/18); // {ref_x,ref_y,ref_z}
 			memcpy(keyboardData, keyboardDataBuffer, sizeof(keyboardDataBuffer)); // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref}
 			memcpy(tuningMpcData, tuningMpcBuffer, sizeof(tuningMpcBuffer));
 			memcpy(tuningMpcDataControl, tuningMpcBufferControl, sizeof(tuningMpcBufferControl));
+			memcpy(tuningPidData, tuningPidBuffer, sizeof(tuningPidBuffer));
 			//keyboardTrigger=(int)keyboardDataBuffer[3]; // switch [0=STOP, 1=FLY]
 		pthread_mutex_unlock(&mutexConstraintsData);
 		
@@ -275,8 +279,6 @@ void *threadUpdateConstraintsSettingsReferences(void *arg) {
 
 return NULL;
 }
-
-
 
 //Thread - Update local variables with any new sensor measurements (pipe from sensor process)
 void *threadUpdateMeasurements(void *arg) {
@@ -306,7 +308,6 @@ void *threadUpdateMeasurements(void *arg) {
  	return NULL;
  }
 
-
 /* Thread - Controller algorithm for all three (with pipe to sensor (PWM) and communication process) */
 void *threadController( void *arg ) {
 	// Initialize local structures
@@ -330,10 +331,10 @@ void *threadController( void *arg ) {
 		.Q =  { mpcAtt_Q_1,0,0,0,0,0,		0,mpcAtt_Q_2,0,0,0,0,	0,0,mpcAtt_Q_3,0,0,0,		0,0,0,mpcAtt_Q_4,0,0,	0,0,0,0,mpcAtt_Q_5,0,		0,0,0,0,0,mpcAtt_Q_6 },
 		.Qf = { mpcAtt_Q_1,0,0,0,0,0,		0,mpcAtt_Q_2,0,0,0,0,	0,0,mpcAtt_Q_3,0,0,0,		0,0,0,mpcAtt_Q_4,0,0,	0,0,0,0,mpcAtt_Q_5,0,		0,0,0,0,0,mpcAtt_Q_6 },
 		.R = { mpcAtt_R_1,0,0,	0,mpcAtt_R_2,0,	0,0,mpcAtt_R_3 },
-		.umax = {  .1, .1, .1 },
-		.umin = { -.1,-.1,-.1 },
-		//.n = 6, .m = 3, .T = 10, .niters = 20, .kappa = 1e-5
-		.n = 6, .m = 3, .T = 10, .niters = 5, .kappa = 1e-3
+		.umax = {  10, 10, 10 },
+		.umin = { -10,-10,-10 },
+		.n = 6, .m = 3, .T = 40, .niters = 5, .kappa = 1e-4 // niters iteration, larger better. kappa smaller better
+		//.n = 6, .m = 3, .T = 10, .niters = 5, .kappa = 1e-3
 	};
 	
 	attX_all = calloc(attParams.n*attParams.T, sizeof(double));
@@ -347,7 +348,7 @@ void *threadController( void *arg ) {
 		.R = { mpcAlt_R_1 },
 		.umax = { -mdl_param.g+100*100*(4*mdl_param.c_m*mdl_param.k)/mdl_param.mass },
 		.umin = { .8*(-mdl_param.g+(0)/mdl_param.mass) },
-		.n = 2, .m = 1, .T = 10, .niters = 5, .kappa = 1e+1
+		.n = 2, .m = 1, .T = 10, .niters = 5, .kappa = 1e-2
 	};
 	
 	altX_all = calloc(altParams.n*altParams.T, sizeof(double));
@@ -360,13 +361,32 @@ void *threadController( void *arg ) {
 
 	// Local variables to store global data in to using mutexes
 	double measBuffer[12], refBuffer[12], ref_formBuffer[2], distBuffer[3], distBufferTau[3], point_1[3], point_2[3], p3[3], distance = -1, step_size=0.2, alpha = -1;	
-	int triggerFly, sensorReady, pwmPrint, keyRampRef, triggerMpcPos,timerPrint;
+	int triggerFly, sensorReady, pwmPrint, keyRampRef, triggerMpcPos,timerPrint, mpcAtt_ff; // feed forward activation trigger for attitude mpc;
 	const double PWM0[4] = { 0.1,0.1,0.1,0.1 };
 	double Lbc_mk4 = 4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k;	// common denominator for all lines of forces2PWM calc
 	int i;
 	
 	double tuningMpcBuffer[14];
 	double tuningMpcBufferControl[6];
+	double controllerBuffer[8]; // {PWM, thrust, torques} to be sent over to sensor.c
+	double tuningPidBuffer[6];
+	
+	// PID variables
+	double pid_gyro_error_integral[1]={0};
+	double pid_gyro_error_prev[1]={0};
+	double pid_gyro_u=0;
+	double pid_gyro_kp_local=1;
+	double pid_gyro_ki_local=1;
+	double pid_gyro_kd_local=0;
+	
+	double pid_angle_error_integral[1]={0};
+	double pid_angle_error_prev[1]={0};
+	double pid_angle_u=0;
+	double pid_angle_kp_local=1;
+	double pid_angle_ki_local=1;
+	double pid_angle_kd_local=0;
+	
+	int pid_trigger;
 	
 	/// Setup timer variables for real time
 	struct timespec t,t_start,t_stop;
@@ -407,8 +427,11 @@ void *threadController( void *arg ) {
 			pwmPrint=(int)keyboardData[4];
 			timerPrint=(int)keyboardData[5];
 			keyRampRef=(int)keyboardData[10];
+			mpcAtt_ff=(int)keyboardData[14];
+			pid_trigger=(int)keyboardData[16];
 			memcpy(tuningMpcBuffer, tuningMpcData, sizeof(tuningMpcData));
 			memcpy(tuningMpcBufferControl, tuningMpcDataControl, sizeof(tuningMpcDataControl));
+			memcpy(tuningPidBuffer, tuningPidData, sizeof(tuningPidData));
 		pthread_mutex_unlock(&mutexConstraintsData);
 		
 		/// Time it and print true sampling rate
@@ -465,6 +488,14 @@ void *threadController( void *arg ) {
 		attParams.R[4]=tuningMpcBufferControl[3];
 		attParams.R[8]=tuningMpcBufferControl[4];
 		altParams.R[0]=tuningMpcBufferControl[5];
+		
+		// Update controller PID gains
+		pid_gyro_kp_local=tuningPidBuffer[0];
+		pid_gyro_ki_local=tuningPidBuffer[1];
+		pid_gyro_kd_local=tuningPidBuffer[2];
+		pid_angle_kp_local=tuningPidBuffer[3];
+		pid_angle_ki_local=tuningPidBuffer[4];
+		pid_angle_kd_local=tuningPidBuffer[5];
 	
 		// To ramp the references in x, y and z
 		if ( keyRampRef ) {
@@ -493,18 +524,40 @@ void *threadController( void *arg ) {
 				//printf("references-> ");
 				//printmat(refBuffer, 1, 12);
 				
-				//printf("Ref pos: %1.2f %1.2f %1.2f\n", refBuffer[0], refBuffer[1], refBuffer[2]); 
+				//printf("Ref pos: %1.2f %1.2f %1.2f\n", refBuffer[0], refBuffer[1], refBuffer[2]); 	
+				
+				//printf("%f\n", pid_angle_ki_local);
 				
 				// Run controllers 
 				controllerPos( &posParams, &posInputs, posX_all, posU_all, measBuffer, refBuffer, ref_formBuffer, distBuffer);
-				controllerAtt( &attParams, &attInputs, attX_all, attU_all, measBuffer, refBuffer, distBufferTau);
+				controllerAtt( &attParams, &attInputs, attX_all, attU_all, measBuffer, refBuffer, pid_angle_error_integral, mpcAtt_ff,pid_angle_ki_local, tsTrue);
+				tau_x=0; tau_y=0; tau_z=0;
 				controllerAlt( &altParams, &altInputs, altX_all, altU_all, attU_all, measBuffer, refBuffer, distBuffer);
-				
+
+				// if (pid_trigger){
+					// //printf("PID\n");
+					// // angle controller
+					// pid_angle_u = controllerPID((measBuffer[6]-phi_dist),pid_angle_error_integral,pid_angle_error_prev,pid_angle_kp_local,pid_angle_ki_local,pid_angle_kd_local, tsTrue);
+					// // gyro controller
+					// tau_x = controllerPID((measBuffer[9]-pid_angle_u),pid_gyro_error_integral,pid_gyro_error_prev,pid_gyro_kp_local,pid_gyro_ki_local,pid_gyro_kd_local, tsTrue);
+					// //tau_x=pid_gyro_u+pid_angle_u;
+					// tau_y=0;
+					// tau_z=0;
+					
+					// if (tau_x > .1) {tau_x = .1;}
+					// else if (tau_x < -.1) {tau_x = -.1;}					
+				// }
+
 				// Create PWM signal from calculated thrust and torques
 				PWM[0] = sqrt( (  2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				PWM[1] = sqrt( (  2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+				
+				PWM[0]=90;
+				PWM[1]=90;
+				PWM[2]=90;
+				PWM[3]=90;
 			}
 
 			// If false, force PWM outputs to zero.
@@ -538,16 +591,30 @@ void *threadController( void *arg ) {
 				}
 								
 				memcpy(PWM, PWM0, sizeof(PWM));
+				tau_x = 0;
+				pid_gyro_error_integral[0]=0;
+				pid_gyro_error_prev[0]=0;
+				
 			}
 		
 			// Print PWM signal sent to motors
 			if(pwmPrint){
-				printf("PWM: %3.4f %3.4f %3.4f %3.4f (u_mpcPos) % 2.5f % 2.5f (u_mpcAtt) % 2.4f % 2.4f % 2.4f (u_mpcAlt) % 3.5f\n", PWM[0], PWM[1], PWM[2], PWM[3], theta_dist, phi_dist, tau_x, tau_y, tau_z, thrust );
+				printf("PWM: %3.4f %3.4f %3.4f %3.4f (u_mpcPos) % 2.5f % 2.5f (u_mpcAtt) % 2.4f % 2.4f % 2.4f (u_mpcAtt_FF) % 2.4f % 2.4f % 2.4f (u_mpcAlt) % 3.5f (u_mpcAttInt) % 2.4f\n", PWM[0], PWM[1], PWM[2], PWM[3], theta_dist, phi_dist, attU_all[0], attU_all[1], attU_all[2], tau_x, tau_y, tau_z, thrust, pid_angle_error_integral[0]);
 			}
 			
+			// Copy data over to common controller buffer before sending it to sensor.c
+			controllerBuffer[0]=PWM[0];
+			controllerBuffer[1]=PWM[1];
+			controllerBuffer[2]=PWM[2];
+			controllerBuffer[3]=PWM[3];
+			controllerBuffer[4]=thrust;
+			controllerBuffer[5]=tau_x;
+			controllerBuffer[6]=tau_y;
+			controllerBuffer[7]=tau_z;
+			
 			// Set motor PWM signals by writing to the sensor.c process which applies the changes over I2C.
-			if (write(ptrPipe1->parent[1], PWM, sizeof(PWM)) != sizeof(PWM)) printf("write error in controller to sensor\n");
-			//else printf("Controller ID: %d, Sent PWM: %3.5f to Communication\n", (int)getpid(), PWM[0]);
+			if (write(ptrPipe1->parent[1], controllerBuffer, sizeof(controllerBuffer)) != sizeof(controllerBuffer)) printf("write error in controller to sensor\n");
+			//else printf("Controller ID: %d, Sent controllerBuffer: %3.5f to Communication\n", (int)getpid(), controllerBuffer[0]);
 		}
 		// Set update of constraints and controller results by writing to the communication.c process which applies the changes over UDP to other agents
 		//if (write(ptrPipe2->parent[1], posX_all, sizeof(posX_all)) != sizeof(posX_all)) printf("write error in controller to communication\n");
@@ -576,6 +643,27 @@ void *threadController( void *arg ) {
 /******************************************************************/
 /*************************   FUNCTIONS   **************************/
 /******************************************************************/
+
+/* PID controller - Gains: kp = proportional, ki = integral, kd = derivative*/
+static double controllerPID(double error_current, double *error_integral, double *error_prev, double kp, double ki, double kd, double ts){
+	// Integral error
+	double u;
+	error_integral[0] += (error_current*ts);
+	
+	//printf("error_current> %f - kp> %f - ki> %f - kd> %f\n", error_current, kp, ki, kd);
+
+	// Calculate control action
+	u = (kp*error_current) + (ki*error_integral[0]) + (kd*(error_current-error_prev[0])/ts);
+	
+	// Flip controller signal (torque directions)
+	u*=-1;
+	
+	// Save current error for next iteration
+	error_prev[0]=error_current;
+	
+	return u;
+}
+
 /* Saturation calculation for altitude MPC control input constraints [umin/umax] */
 static void getAltitudeInputConstraints( double *dist , struct AltParams *altParams, double *attU_all ) {
 	// Saturation function to compensate for disturbance z-axis + necessary
@@ -654,8 +742,9 @@ static void controllerPos( struct PosParams *posParams, struct PosInputs *posInp
 }
 	
 /* The same as threadControllerAtt but here as a function and not a thread with sample rate */
-static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInputs, double *attX_all, double *attU_all, double *meas, double *ref, double *dist) {
+static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInputs, double *attX_all, double *attU_all, double *meas, double *ref, double* error_integral, int mpcAtt_ff, double ki, double ts) {
 	int i;
+	//double u_integral=0; // integral action variable
 	
 	// Warm start before running the controller - MEMCPY IS NOT NEEDED IN SIMULINK
 	memcpy(&attInputs->X0_all[0], &attX_all[attParams->n], sizeof(double)*attParams->n*attParams->T-attParams->n); 	
@@ -667,17 +756,33 @@ static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInp
 		attInputs->U0_all[i] = 0;
 		}
 	
+	// Integrator action for angle state to get offset free control
+	 if(mpcAtt_ff){
+		error_integral[0] += ki*((meas[6] - phi_dist)*ts);
+	 }
+	 else{
+		 error_integral[0]=0;
+	 }
+	
+	
+	
 	// Update controller input contraints [umin/umax] to compensate for disturbances in torque
-	//attParams->umax[0]=0.1-dist[0];
-	//attParams->umin[0]=-0.1-dist[0];
-	//attParams->umax[1]=0.1-dist[1];
-	//attParams->umin[1]=-0.1-dist[1];
-	//attParams->umax[2]=0.1-dist[2];
-	//attParams->umin[2]=-0.1-dist[2];
+	if(mpcAtt_ff){
+		//attParams->umax[0]=10+error_integral[0];
+		//attParams->umin[0]=-10+error_integral[0];
+		// attParams->umax[0]=0.1+dist[0];
+		// attParams->umin[0]=-0.1+dist[0];
+		// attParams->umax[1]=0.1+dist[1];
+		// attParams->umin[1]=-0.1+dist[1];
+		// attParams->umax[2]=0.1+dist[2];
+		// attParams->umin[2]=-0.1+dist[2];
+	}
+	
+	//printf("umaxumin_0(% 1.4f % 1.4f) umaxumin_1(% 1.4f % 1.4f) umaxumin_2(% 1.4f % 1.4f)\n", attParams->umax[0]-dist[0], attParams->umin[0]-dist[0], attParams->umax[1]-dist[1], attParams->umin[1]-dist[1], attParams->umax[2]-dist[2], attParams->umin[2]-dist[2]);
 	
 	// Get measurements and references from global data
 	attInputs->x0[0] = meas[6] - phi_dist;			//phi - coming from the pos controller
-	attInputs->x0[1] = meas[9] - ref[9];		//phidot
+	attInputs->x0[1] = meas[9] - ref[9];		//phidots
 	attInputs->x0[2] = meas[7] - theta_dist;			//theta - coming from the pos controller
 	attInputs->x0[3] = meas[10] - ref[10];	//thetadot
 	attInputs->x0[4] = meas[8] - ref[8];		//psi
@@ -688,17 +793,19 @@ static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInp
 	attFmpc(attParams, attInputs, attX_all, attU_all);
 	
 	//printf("{% 1.4f % 1.4f % 1.4f} {% 1.4f % 1.4f % 1.4f}\n", attU_all[0], attU_all[1], attU_all[2], dist[0], dist[1], dist[2]);
-		
-	//attU_all[0]-=dist[0]; // feed forward disturbance compensation x
-	//attU_all[1]-=dist[1]; // feed forward disturbance compensation y
-	//attU_all[2]-=dist[2]; // feed forward disturbance compensation z
 	
 	tau_x = attU_all[0];		// phi
 	tau_y = attU_all[1];		// theta
 	tau_z = attU_all[2];		// psi
 	
-	//printf("meas[6]=%f  meas[7]=%f	tau_x=%f tau_y=%f\n", meas[6]*180/3.141592653589793, meas[7]*180/3.141592653589793, tau_x, tau_y);
-	
+	// Feed forward disturbance compensation
+	if(mpcAtt_ff){
+		tau_x -= error_integral[0];
+		// attU_all[0] -= dist[0];
+		// attU_all[1] -= dist[1];
+		// attU_all[2] -= dist[2];
+	}
+
 	for ( i = 0; i < attParams->m*attParams->T; i++ ) {
 		if(isnan(attU_all[i])!=0){
 			printf("MPC attU[%i]=nan\n",i);

@@ -14,7 +14,7 @@
 // PRIORITY
 #define PRIORITY_CONTROLLER_STATE_UPDATE 42
 #define PRIORITY_CONTROLLER_CONSTRAINTS_UPDATE 41
-#define PRIORITY_CONTROLLER_MPC 43
+#define PRIORITY_CONTROLLER_MPC 60
 #define PRIORITY_CONTROLLER_WATCHDOG 44
 
 #define PRIORITY_SENSOR_BEACON 38
@@ -29,12 +29,12 @@
 #define PRIORITY_COMMUNICATION_PIPE_SENSOR 28
 
 // Sampling Time
-#define tsController 25000000 // 0.5s
+#define tsController 25000000 // 0.025s
 #define tsWatchdog 500000000 // 0.5s
 //#define tsUDP 100000000
-#define tsSensorsFusion 25000000 // 0.02s
+#define tsSensorsFusion 1e+7 // 0.025s
 #define tsReadBeacon 50000000 // 0.05s
-#define tsUdpWrite 25000000 // 0.1s
+#define tsUdpWrite 1e+7 // 0.1s
 
 /******************************/
 
@@ -47,8 +47,8 @@
 #define	par_k 0.000010107f// lift coeff
 #define	par_b 0.00000033691f // drag coeff
 #define	par_k_d 0.25f // air friction
-#define par_i_xx 0.0012f // quad inertia about xb
-#define par_i_yy 0.0012f // quad inertia about yb
+#define par_i_xx 0.00144703915602229f // quad inertia about xb
+#define par_i_yy 0.00144703915602229f // quad inertia about yb
 #define par_i_zz 0.0023f // quad inertia about zb
 //#define par_i_xx 0.022f // quad inertia about xb
 //#define par_i_yy 0.022f // quad inertia about yb
@@ -77,15 +77,15 @@ Keyboard listening...
 #define mpcPos_R_2 1000.0f
 
 // Default MPC ATTITUDE weights Q (Qf) and R
-#define mpcAtt_Q_1 500.0f
-#define mpcAtt_Q_2 1.0e-6f
-#define mpcAtt_Q_3 500.0f
-#define mpcAtt_Q_4 1.0e-6f
+#define mpcAtt_Q_1 2.0e4f
+#define mpcAtt_Q_2 100.0f
+#define mpcAtt_Q_3 2.0e4f
+#define mpcAtt_Q_4 100.0f
 #define mpcAtt_Q_5 1.0f
 #define mpcAtt_Q_6 1.0f
 //2000.000000,2000.000000,10000000000000.000000
-#define mpcAtt_R_1 800.0f
-#define mpcAtt_R_2 800.0f
+#define mpcAtt_R_1 1000.0f
+#define mpcAtt_R_2 1000.0f
 #define mpcAtt_R_3 100000000000.0f
 
 // Default MPC ALTITUDE weights Q (Qf) and R
@@ -95,24 +95,33 @@ Keyboard listening...
 #define mpcAlt_R_1 1.0f
 
 // Default EKF weights Q
-#define ekf_Q_1 1.0e-7f
-#define ekf_Q_2 1.0e-7f
-#define ekf_Q_3 1.0e-7f
-#define ekf_Q_4 1.0e1f
-#define ekf_Q_5 1.0e1f
-#define ekf_Q_6 1.0e1f
-#define ekf_Q_7 1.0e-5f
-#define ekf_Q_8 1.0e-5f
-#define ekf_Q_9 1.0e-12f
-#define ekf_Q_10 1.0e-1f
-#define ekf_Q_11 1.0e-1f
-#define ekf_Q_12 1.0e-1f
-#define ekf_Q_13 1.0e-7f
-#define ekf_Q_14 1.0e-7f
+#define ekf_Q_1 1.0e-10f
+#define ekf_Q_2 1.0e-10f
+#define ekf_Q_3 1.0e-10f
+#define ekf_Q_4 1.0e-10f
+#define ekf_Q_5 1.0e-10f
+#define ekf_Q_6 1.0e-10f
+#define ekf_Q_7 1.0e-4f
+#define ekf_Q_8 1.0e-4f
+#define ekf_Q_9 1.0e-4f
+#define ekf_Q_10 1.0e-4f
+#define ekf_Q_11 1.0e-4f
+#define ekf_Q_12 1.0e-4f
+#define ekf_Q_13 1.0e-3f
+#define ekf_Q_14 1.0e-3f
 #define ekf_Q_15 0.00001f
-#define ekf_Q_16 1.0e-10f
-#define ekf_Q_17 1.0e-10f
-#define ekf_Q_18 1.0e-15f
+#define ekf_Q_16 1.0e20f
+#define ekf_Q_17 1.0e20f
+#define ekf_Q_18 1.0e20f
+
+// Default PID gains
+#define pid_gyro_kp 6e-2f
+#define pid_gyro_ki 0.0f
+#define pid_gyro_kd 0.0f
+#define pid_angle_kp 2.0f
+#define pid_angle_ki 1.0e-2f
+#define pid_angle_kd 0.0f
+
 
 typedef struct _structPipe{
 	int parent[2];

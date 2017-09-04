@@ -43,11 +43,18 @@ static void keyReading( void );
 // Static variables for threads
 static double controllerData[9]={0,0,0,0,0,0,0,0,0};
 static double sensorData[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-static double keyboardData[14]={0,0,0,0,0,0,0,0,0,0,0,0.01,0.05,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref, alpha, beta, enable/disable position control}
+
+static double keyboardData[18]={0,0,0,0,0,0,0,0,0,0,0,0.01,0.05,0,0,0,0,0}; // {ref_x,ref_y,ref_z, switch[0=STOP, 1=FLY], pwm_print, timer_print,ekf_print,reset ekf/mpc, EKF print 6 states, reset calibration sensor.c, ramp ref, alpha, beta, enable/disable position control, ff attmpc toggle, save data, pid trigger,toggle motor pwm range tuning}
 static double tuningMpcData[14]={mpcPos_Q_1,mpcPos_Q_2,mpcPos_Q_3,mpcPos_Q_4,mpcPos_Q_5,mpcPos_Q_6,mpcAtt_Q_1,mpcAtt_Q_2,mpcAtt_Q_3,mpcAtt_Q_4,mpcAtt_Q_5,mpcAtt_Q_6,mpcAlt_Q_1,mpcAlt_Q_2}; // Q and Qf mpc {x,xdot,y,ydot,xform,yform,phi,phidot,theta,thetadot,psi,psidot,z,zdot}
 static double tuningMpcDataControl[6]={mpcPos_R_1,mpcPos_R_2,mpcAtt_R_1,mpcAtt_R_2,mpcAtt_R_3,mpcAlt_R_1}; // R mpc {pos,pos,taux,tauy,tauz,alt}
 static double tuningEkfData[18]={ekf_Q_1,ekf_Q_2,ekf_Q_3,ekf_Q_4,ekf_Q_5,ekf_Q_6,ekf_Q_7,ekf_Q_8,ekf_Q_9,ekf_Q_10,ekf_Q_11,ekf_Q_12,ekf_Q_13,ekf_Q_14,ekf_Q_15,ekf_Q_16,ekf_Q_17,ekf_Q_18};
-	
+static double tuningPidData[6]={pid_gyro_kp,pid_gyro_ki,pid_gyro_kd,pid_angle_kp,pid_angle_ki,pid_angle_kd}; // PID gains
+
+
+
+
+
+
 static int socketReady=0;
 
 //static float setpoint[] = {0.0,0.0,0.0}; // coordinates {x,y,z}
@@ -177,8 +184,7 @@ static void *threadPipeControllerToComm(void *arg)
 
 
 // Thread - Pipe Communication from Sensor read
-static void *threadPipeSensorToCommunication(void *arg)
-{
+static void *threadPipeSensorToCommunication(void *arg){
 	// Get pipe and define local variables
 	structPipe *ptrPipe = arg;
 	double sensorDataBuffer[19];
@@ -205,6 +211,8 @@ static void *threadPipeSensorToCommunication(void *arg)
 		// Read data from sensor process
 		if(read(ptrPipe->parent[0], sensorDataBuffer, sizeof(sensorDataBuffer)) == -1) printf("read error in communication from sensor\n");
 		//else printf("Communication ID: %d, Recieved Sensor data: %f\n", (int)getpid(), sensorDataBuffer[0]);
+		
+		//printf("% 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f % 1.3f\n", sensorDataBuffer[0],sensorDataBuffer[1], sensorDataBuffer[2], sensorDataBuffer[3], sensorDataBuffer[4], sensorDataBuffer[5], sensorDataBuffer[6], sensorDataBuffer[7], sensorDataBuffer[8], sensorDataBuffer[9], sensorDataBuffer[10], sensorDataBuffer[11], sensorDataBuffer[12], sensorDataBuffer[13], sensorDataBuffer[14], sensorDataBuffer[15], sensorDataBuffer[16], sensorDataBuffer[17], sensorDataBuffer[18]);
 		
 		// Put new data in to global variable in communication.c
 		pthread_mutex_lock(&mutexSensorData);
@@ -263,8 +271,7 @@ static void *threadPipeSensorToCommunication(void *arg)
 
 
 // UDP read thread
-static void *threadUdpRead(void *arg)
-{
+static void *threadUdpRead(void *arg){
 	// Get pipe array and define local variables
 	//pipeArray *pipeArray1 = arg;
 	//structPipe *ptrPipe1 = pipeArray1->pipe1;
@@ -302,8 +309,7 @@ static void *threadUdpRead(void *arg)
 
 
 // UDP write thread
-static void *threadUdpWrite()
-{
+static void *threadUdpWrite(){
 	// Local variables
 	double agentData[19];
 		
@@ -322,7 +328,7 @@ static void *threadUdpWrite()
 	}
 	
 	/// Wait 10 seconds before starting before starting
-	t.tv_sec+=30;
+	t.tv_sec+=10;
 	
 	// Loop forever streaming data
 	while(1){
@@ -400,7 +406,7 @@ static void *threadKeyReading( void *arg ) {
 	//int tsAverageCounter=0;
 	//double tsAverageAccum=0;
 	//double tsTrue; // tsAverage=tsController
-	double keyboardDataController[52];
+	double keyboardDataController[62];
 	//int timerPrint=0;
 	
 	/// Lock memory
@@ -415,9 +421,10 @@ static void *threadKeyReading( void *arg ) {
 		keyReading();
 		
 		memcpy(keyboardDataController, keyboardData, sizeof(keyboardData));
-		memcpy(keyboardDataController+14, tuningMpcData, sizeof(tuningMpcData));
-		memcpy(keyboardDataController+28, tuningMpcDataControl, sizeof(tuningMpcDataControl));
-		memcpy(keyboardDataController+34, tuningEkfData, sizeof(tuningEkfData));
+		memcpy(keyboardDataController+18, tuningMpcData, sizeof(tuningMpcData));
+		memcpy(keyboardDataController+32, tuningMpcDataControl, sizeof(tuningMpcDataControl));
+		memcpy(keyboardDataController+38, tuningEkfData, sizeof(tuningEkfData));
+		memcpy(keyboardDataController+56, tuningPidData, sizeof(tuningPidData));
 		
 		//printf("%2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f \n\n%2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f %2.1f\n", keyboardDataController[0], keyboardDataController[1], keyboardDataController[2], keyboardDataController[3], keyboardDataController[4], keyboardDataController[5], keyboardDataController[6], keyboardDataController[7], keyboardDataController[8],keyboardDataController[9], keyboardDataController[10], keyboardDataController[11], keyboardDataController[12], keyboardDataController[13], keyboardDataController[14], keyboardDataController[15], keyboardDataController[16], keyboardDataController[17],keyboardDataController[18], keyboardDataController[19], keyboardDataController[20], keyboardDataController[21], keyboardDataController[22], keyboardDataController[23], keyboardDataController[24], keyboardDataController[25], keyboardDataController[26], keyboardDataController[27], keyboardDataController[28], keyboardDataController[29], keyboardDataController[30], keyboardDataController[31], keyboardDataController[32], keyboardDataController[33], keyboardDataController[34], keyboardDataController[35], keyboardDataController[36], keyboardDataController[37], keyboardDataController[38], keyboardDataController[39], keyboardDataController[40], keyboardDataController[41], keyboardDataController[42], keyboardDataController[43], keyboardDataController[44], keyboardDataController[45], keyboardDataController[46], keyboardDataController[47], keyboardDataController[48], keyboardDataController[49]);
 		
@@ -481,7 +488,7 @@ static void openSocketCommunication(){
 		perror("bind read");
 	}
 	printf("Socket ready\n");
-	socketReady=0;
+	socketReady=1;
 }
 
 /* Read in PWM value */
@@ -492,9 +499,13 @@ void keyReading( void ) {
 	double tuningMpcBuffer[14];
 	double tuningMpcBufferControl[6];
 	double tuningEkfBuffer[18];
+	double tuningPidBuffer[6];
+	
 	memcpy(tuningMpcBuffer, tuningMpcData, sizeof(tuningMpcData));
 	memcpy(tuningMpcBufferControl, tuningMpcDataControl, sizeof(tuningMpcDataControl));
 	memcpy(tuningEkfBuffer, tuningEkfData, sizeof(tuningEkfData));
+	memcpy(tuningPidBuffer, tuningPidData, sizeof(tuningPidData));
+	
 	char *pt;
 	int counter=0;
 	int tuningFlag=1;
@@ -576,6 +587,8 @@ void keyReading( void ) {
 					//keyboardDataBuffer[3] = 0;
 				//pthread_mutex_unlock(&mutexSensorData);
 				printf("Set to STOP now!\n");
+				keyboardData[14] = 0;
+				printf(" Feed forward attitude MPC not active any more: %i\n", (int)keyboardData[14]);
 			}
 			break;
 			
@@ -596,7 +609,22 @@ void keyReading( void ) {
 				}
 			}
 			else if ( keyboardData[3] == 1 ) {
-				printf("It is already FLY idiot!\n");
+				//printf("It is already FLY idiot!\n");
+				printf("Feed forward attitude MPC active, [y]es or [n]o?\n");
+				scanf("%s", selection);
+				if ( strcmp(selection, "x" ) == 0 ){
+					keyboardData[14] = 0;
+					printf(" Feed forward attitude MPC not active: %i\n", (int)keyboardData[14]);
+					break;
+				}
+				if ( strcmp(selection, "y" ) == 0 ){
+					keyboardData[14] = 1;
+					printf(" Feed forward attitude MPC active: %i\n", (int)keyboardData[14]);
+				}
+				else {
+					printf("No selection. Feed forward status: %i. Aborting\n", (int)keyboardData[14]);
+					break;
+				}
 			}
 			break;
 			
@@ -612,6 +640,17 @@ void keyReading( void ) {
 			else if(keyboardData[4]==1){
 				keyboardData[4]=0;
 				printf("PWM print toggle: %i\n", (int)keyboardData[4]);
+			}
+		break;
+		
+		case 'd' :
+			if (keyboardData[15]==0){
+				keyboardData[15]=1;
+				printf("Data save toggle: %i\n", (int)keyboardData[15]);
+			}
+			else if(keyboardData[15]==1){
+				keyboardData[15]=0;
+				printf("Data save toggle: %i\n", (int)keyboardData[15]);
 			}
 		break;
 		
@@ -785,7 +824,7 @@ void keyReading( void ) {
 			// attitude tuning
 			else if ( strcmp(selection, "a" ) == 0 ) {
 				while (tuningFlag){
-					printf(" [q] state weights\n [r] control weights\n");
+					printf(" [q] state weights\n [r] control weights\n [p]id control gains\n [t] pid control toggle\n");
 					scanf("%s", selection);
 					// State weights
 					if( strcmp(selection, "q" ) == 0 ){
@@ -854,6 +893,57 @@ void keyReading( void ) {
 							tuningFlag=0;
 						}
 					}
+					
+					// Toggle PID(MPC) on/off
+					else if( strcmp(selection, "t" ) == 0 ){
+						if (keyboardData[16]==0){
+							keyboardData[16]=1;
+							printf("PID attitude control active. MPC not active. Toggle: %i\n", (int)keyboardData[16]);
+						}
+						else if(keyboardData[16]==1){
+							keyboardData[16]=0;
+							printf("MPC attitude control active. PID not active. Toggle: %i\n", (int)keyboardData[16]);
+						}
+						break;
+					}
+					
+					// PID tuning gains
+					else if ( strcmp(selection, "p" ) == 0 ) {
+						while (tuningFlag){
+							printf("PID gains attitude {gyro_kp,gyro_ki,gyro_kd,angle_kp,angle_ki,angle_kd}\n Old: {%f,%f,%f,%f,%f,%f}\n New: ", tuningPidData[0], tuningPidData[1], tuningPidData[2], tuningPidData[3], tuningPidData[4], tuningPidData[5]);
+							scanf("%s", input_char);
+							pt = strtok(input_char, ",");
+							while (pt != NULL){
+								tuningPidBuffer[counter]=atof(pt);
+								pt = strtok(NULL, ",");
+								counter++;
+							}
+							if (counter!=6){
+								printf("Bad format. Retry [y]?  Else press any button to cancel\n");
+								scanf("%s", selection);
+								if ( strcmp(selection, "y" ) == 0 ){
+									counter=0;
+									tuningFlag=1;
+								}
+								else{
+									tuningFlag=0;
+								}
+							}
+							else {
+								printf("\nAccept [y]? Else press any button to cancel\n");
+								scanf("%s", selection);
+								if ( strcmp(selection, "y" ) == 0 ){
+									for (int i=0;i<6;i++){
+										tuningPidData[i]=tuningPidBuffer[i];
+									}
+									printf("Updated: {%f,%f,%f,%f,%f,%f}\n", tuningPidData[0], tuningPidData[1], tuningPidData[2], tuningPidData[3], tuningPidData[4], tuningPidData[5]);
+								}
+								tuningFlag=0;
+							}			
+						}
+						break;
+					}
+					
 					else{
 						break;
 					}
@@ -1073,10 +1163,41 @@ void keyReading( void ) {
 			
 			else{ printf("Aborting\n"); break; }
 
-		break;
+		case 'v' :
+			if (keyboardData[17]==0){
+				printf("Motor PWM range settings status: %i. Start by [y] or cancel by [x]\n", (int)keyboardData[17]);
+				scanf("%s", selection);
+				if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting\n"); break; }
+				if ( strcmp(selection, "y" ) == 0 ) {
+					printf("Power off speed controllers. Continue [y] or [x]?\n");
+					scanf("%s", selection);
+					if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting\n"); break; }
+					if ( strcmp(selection, "y" ) == 0 ) {
+						printf("PWM is set to 100. Power on speed controllers. Confirming sound should be made.\n");
+						
+						keyboardData[17]=1;
+						printf("Motor PWM range setting status: %i. Toggle [v] again to deactive and finish adjustments.\n", (int)keyboardData[17]);
+						break;
+					}
+									
+					
+				}
+			}
+			
+			else if(keyboardData[17]==1){
+				printf("Motor PWM range settings status: %i. Stop by [y] or cancel by [x]\n", (int)keyboardData[17]);
+				scanf("%s", selection);
+				if ( strcmp(selection, "x" ) == 0 ) { printf("Aborting. Motor PWM range stil active\n"); break; }
+				if ( strcmp(selection, "y" ) == 0 ) {
+					keyboardData[17]=0;
+					printf("PWM is set to 0. Confirming sound should be made.\n");
+					printf("Motor PWM range setting status: %i. Adjustment finish.\n", (int)keyboardData[17]);
+					break;
+				}
+			}
 		
 		case 'h' :
-			printf("\n [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n [p]wm - Print PWM in terminal by toggle on/off\n [t]timers - Print average real time by toggle on/off\n [e]kf - Print EKF xhat (states, inertias and disturbances) by toggle on/off\n [w]ekf 6 states - Print EKF xhat (reference states) by toggle on/off\n [n]ew try - Reset EKF and MPC by toggle on/off\n [c]alibrate sensor fusion and EKF - Redo calibration\n [a]lpha magnetometer outlier forgetting factor\n [b]eta Madgwick Filter gain\n [m]pc settings\n [q]ekf settings\n");
+			printf("\n [r]eferences - Sets the references\n [s]top - Sets the switch to 0 and stops it hopefully!\n [f]ly - Set the switch to 1!\t [f]eed forward - attitude mpc\n [i]nfo - Shows all the references and the switch\n [h]elp - Shows this again!\n [x] Aborts at every reading!\n [p]wm - Print PWM in terminal by toggle on/off\n [t]timers - Print average real time by toggle on/off\n [e]kf - Print EKF xhat (states, inertias and disturbances) by toggle on/off\n [w]ekf 6 states - Print EKF xhat (reference states) by toggle on/off\n [n]ew try - Reset EKF and MPC by toggle on/off\n [c]alibrate sensor fusion and EKF - Redo calibration\n [a]lpha magnetometer outlier forgetting factor\n [b]eta Madgwick Filter gain\n [m]pc settings\n [q]ekf settings\n [d]ata save to file\n [v] motor pwm range settings\n");
 			break;
 				
 		default :
@@ -1222,4 +1343,3 @@ static void messageDecode(char *input)
 }
 
 */
-

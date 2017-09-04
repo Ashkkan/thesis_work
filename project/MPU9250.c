@@ -856,8 +856,8 @@ int readAllSensorData(double *accRaw, double *gyrRaw, double *magRaw, double *te
 	if (wiringPiI2CReadReg8(fdMPU9250, INT_STATUS) & 0x01){
 		readAccelData(accRaw);
 		readGyroData(gyrRaw);
-		readMagData(magRaw);
-		readTempData(tempRaw);
+		//readMagData(magRaw);
+		//readTempData(tempRaw);
 		return 1;
 	}
 	else{
