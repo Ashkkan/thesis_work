@@ -330,10 +330,12 @@ void *threadController( void *arg ) {
 		.B = { 0,AttTsSec/mdl_param.i_xx,0,0,0,0,	0,0,0,AttTsSec/mdl_param.i_yy,0,0,	0,0,0,0,0,AttTsSec/mdl_param.i_zz },
 		.Q =  { mpcAtt_Q_1,0,0,0,0,0,		0,mpcAtt_Q_2,0,0,0,0,	0,0,mpcAtt_Q_3,0,0,0,		0,0,0,mpcAtt_Q_4,0,0,	0,0,0,0,mpcAtt_Q_5,0,		0,0,0,0,0,mpcAtt_Q_6 },
 		.Qf = { mpcAtt_Q_1,0,0,0,0,0,		0,mpcAtt_Q_2,0,0,0,0,	0,0,mpcAtt_Q_3,0,0,0,		0,0,0,mpcAtt_Q_4,0,0,	0,0,0,0,mpcAtt_Q_5,0,		0,0,0,0,0,mpcAtt_Q_6 },
+		// Qf with DARE with Q=2e4,1e2,2e4,1e2,1,1 and R = 1000,1000,1e10
+		//.Qf = {8.798002e+04,1.738053e+03,-2.789917e-11,-2.684214e-12,2.249382e-11,4.186520e-10,1.738053e+03,1.476911e+02,-1.032293e-12,-9.948871e-14,8.105915e-13,1.202670e-11,-2.789917e-11,-1.032293e-12,8.798002e+04,1.738053e+03,-6.083022e-09,-1.319085e-07,-2.684214e-12,-9.948871e-14,1.738053e+03,1.476911e+02,-1.600276e-10,-3.472108e-09,2.249382e-11,8.105915e-13,-6.083022e-09,-1.600276e-10,8.598367e+02,9.210742e+03,4.186520e-10,1.202670e-11,-1.319085e-07,-3.472108e-09,9.210742e+03,1.977631e+05},
 		.R = { mpcAtt_R_1,0,0,	0,mpcAtt_R_2,0,	0,0,mpcAtt_R_3 },
 		.umax = {  10, 10, 10 },
 		.umin = { -10,-10,-10 },
-		.n = 6, .m = 3, .T = 40, .niters = 5, .kappa = 1e-4 // niters iteration, larger better. kappa smaller better
+		.n = 6, .m = 3, .T = 40, .niters = 5, .kappa = 1e-20 // niters iteration, larger better. kappa smaller better
 		//.n = 6, .m = 3, .T = 10, .niters = 5, .kappa = 1e-3
 	};
 	
@@ -366,8 +368,8 @@ void *threadController( void *arg ) {
 	double Lbc_mk4 = 4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k;	// common denominator for all lines of forces2PWM calc
 	int i;
 	
-	double tuningMpcBuffer[14];
-	double tuningMpcBufferControl[6];
+	double tuningMpcBuffer[14];		//Q - 14 states
+	double tuningMpcBufferControl[6];	//R - 1 for alt, 2 for pos,  3 for att
 	double controllerBuffer[8]; // {PWM, thrust, torques} to be sent over to sensor.c
 	double tuningPidBuffer[6];
 	
@@ -474,7 +476,7 @@ void *threadController( void *arg ) {
 			posParams.Q[i*7]=tuningMpcBuffer[i];
 			posParams.Qf[i*7]=tuningMpcBuffer[i];
 			attParams.Q[i*7]=tuningMpcBuffer[i+6];
-			attParams.Qf[i*7]=tuningMpcBuffer[i+6];
+			//attParams.Qf[i*7]=tuningMpcBuffer[i+6];
 		}
 		for (i=0;i<2;i++){
 			altParams.Q[i*3]=tuningMpcBuffer[i+12];
@@ -531,7 +533,7 @@ void *threadController( void *arg ) {
 				// Run controllers 
 				controllerPos( &posParams, &posInputs, posX_all, posU_all, measBuffer, refBuffer, ref_formBuffer, distBuffer);
 				controllerAtt( &attParams, &attInputs, attX_all, attU_all, measBuffer, refBuffer, pid_angle_error_integral, mpcAtt_ff,pid_angle_ki_local, tsTrue);
-				tau_x=0; tau_y=0; tau_z=0;
+				//tau_x=0; tau_y=0; tau_z=0;
 				controllerAlt( &altParams, &altInputs, altX_all, altU_all, attU_all, measBuffer, refBuffer, distBuffer);
 
 				// if (pid_trigger){
@@ -554,10 +556,10 @@ void *threadController( void *arg ) {
 				PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				
-				PWM[0]=90;
-				PWM[1]=90;
-				PWM[2]=90;
-				PWM[3]=90;
+				PWM[0]=0;
+				//PWM[1]=0;
+				PWM[2]=0;
+				//PWM[3]=0;
 			}
 
 			// If false, force PWM outputs to zero.
@@ -1458,9 +1460,9 @@ void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen,
         *dptr = *dptr1;
         dptr++; dptr1++;
     }
-    if (quiet == 0)
+    if (quiet == 0 && n == 6 && m == 3)
     {   
-        //printf("\n iteration \t step \t\t rd \t\t\t rp\n");
+        //printf("Controller with n = %i and m = %i\n iteration \t step \t\t rd \t\t\t rp\n", n, m);
     }
     for (iiter = 0; iiter < maxiter; iiter++)
     {
@@ -1540,7 +1542,7 @@ void fmpcsolve(double *A, double *B, double *At, double *Bt, double *eyen,
             *dptr = *dptr1;
             dptr++; dptr1++;
         }
-        if (quiet == 0)
+        if (quiet == 0 && n==6 && m==3)
         {
             //printf("    %d \t\t %5.4f \t %0.5e \t\t %0.5e\n",iiter,s,newresd,newresp);
         }
