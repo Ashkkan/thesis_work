@@ -53,6 +53,7 @@
 //#define par_i_xx 0.022f // quad inertia about xb
 //#define par_i_yy 0.022f // quad inertia about yb
 //#define par_i_zz 0.043f // quad inertia about zb
+//#define	par_c_m 23.0907f // motor constant
 #define	par_c_m 23.0907f // motor constant
 
 /*
@@ -64,6 +65,9 @@ Current R {theta_ref,phi_ref,taux,tauy,tauz,thrust}
 Keyboard listening... 
 
  **/ 
+ 
+#define manualThrust -1.0f
+
 
 // Default MPC POSITION weights Q (Qf) and R
 #define mpcPos_Q_1 10000.0f
@@ -77,12 +81,36 @@ Keyboard listening...
 #define mpcPos_R_2 1000.0f
 
 // Default MPC ATTITUDE weights Q (Qf) and R
-#define mpcAtt_Q_1 2.0e4f
+#define mpcAtt_Q_1 500.0f
 #define mpcAtt_Q_2 100.0f
-#define mpcAtt_Q_3 2.0e4f
+#define mpcAtt_Q_3 500.0f
 #define mpcAtt_Q_4 100.0f
 #define mpcAtt_Q_5 1.0f
 #define mpcAtt_Q_6 1.0f
+
+//{{9713.52, 237.394, 0., 0., 0., 0.}, {237.394, 109.362, 0., 0., 0., 
+  //0.}, {0., 0., 9713.52, 237.394, 0., 0.}, {0., 0., 237.394, 109.362, 
+  //0., 0.}, {0., 0., 0., 0., 8580.14, 920107.}, {0., 0., 0., 0., 
+  //920107., 1.97343*10^8}}
+
+//{{20977.7, 488.167, 0., 0., 0., 0.}
+	//{488.167, 115.803, 0., 0., 0., 0.}
+	//{0., 0., 20977.7, 488.167, 0., 0.}
+	//{0., 0., 488.167, 115.803, 0., 0.}
+	//{0., 0., 0., 0., 8580.14, 920107.}
+	//{0., 0., 0., 0., 920107., 1.97343*10^8}}
+
+#define mpcAtt_Qf_1 29713.52
+#define mpcAtt_Qf_2 109.362
+#define mpcAtt_Qf_3 29713.52
+#define mpcAtt_Qf_4 109.362
+#define mpcAtt_Qf_5 8580.14
+#define mpcAtt_Qf_6 1.97343e8
+#define mpcAtt_Qf_1_2 237.394
+#define mpcAtt_Qf_3_4 237.394
+#define mpcAtt_Qf_5_6 920107
+
+
 //2000.000000,2000.000000,10000000000000.000000
 #define mpcAtt_R_1 1000.0f
 #define mpcAtt_R_2 1000.0f
@@ -122,6 +150,7 @@ Keyboard listening...
 #define pid_angle_ki 1.0e-2f
 #define pid_angle_kd 0.0f
 
+ //{0.045000,0.000000,0.000000,1.500000,1.000000,0.000000}
 
 typedef struct _structPipe{
 	int parent[2];

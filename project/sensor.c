@@ -134,7 +134,7 @@ void startSensors(void *arg1, void *arg2){
 static void *threadPipeCommunicationToSensor(void *arg){
 	// Get pipe and define local variables
 	structPipe *ptrPipe = arg;
-	double communicationDataBuffer[62];
+	double communicationDataBuffer[72];
 	double keyboardDataBuffer[18];
 	double tuningEkfBuffer[18];
 	
@@ -161,8 +161,8 @@ static void *threadPipeCommunicationToSensor(void *arg){
 		if(read(ptrPipe->child[0], communicationDataBuffer, sizeof(communicationDataBuffer)) == -1) printf("read error in sensor from communication\n");
 		//else printf("Sensor ID: %d, Recieved Communication data: %f\n", (int)getpid(), keyboardDataBuffer[0]);
 				
-		memcpy(keyboardDataBuffer, communicationDataBuffer, sizeof(communicationDataBuffer)*18/62);
-		memcpy(tuningEkfBuffer, communicationDataBuffer+38, sizeof(communicationDataBuffer)*18/62);
+		memcpy(keyboardDataBuffer, communicationDataBuffer, sizeof(communicationDataBuffer)*18/71);
+		memcpy(tuningEkfBuffer, communicationDataBuffer+38, sizeof(communicationDataBuffer)*18/71);
 		
 		// Put new data in to global variable in communication.c
 		pthread_mutex_lock(&mutexKeyboardData);
