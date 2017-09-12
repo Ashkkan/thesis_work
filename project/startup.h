@@ -42,19 +42,19 @@
 
 // Model Parameters
 #define par_g 9.81f // gravity
-#define	par_mass 0.432f // total mass
+#define	par_mass 0.4234f // total mass
 #define	par_L 0.125f // length from center to motor
 #define	par_k 0.000010107f// lift coeff
 #define	par_b 0.00000033691f // drag coeff
 #define	par_k_d 0.25f // air friction
-#define par_i_xx 0.00144703915602229f // quad inertia about xb
-#define par_i_yy 0.00144703915602229f // quad inertia about yb
+#define par_i_xx 0.001692037f // quad inertia about xb
+#define par_i_yy 0.001463176f // quad inertia about yb
 #define par_i_zz 0.0023f // quad inertia about zb
 //#define par_i_xx 0.022f // quad inertia about xb
 //#define par_i_yy 0.022f // quad inertia about yb
 //#define par_i_zz 0.043f // quad inertia about zb
 //#define	par_c_m 23.0907f // motor constant
-#define	par_c_m 23.0907f // motor constant
+#define	par_c_m 31.95f // motor constant
 
 /*
  * 
@@ -81,39 +81,35 @@ Keyboard listening...
 #define mpcPos_R_2 1000.0f
 
 // Default MPC ATTITUDE weights Q (Qf) and R
-#define mpcAtt_Q_1 500.0f
+#define mpcAtt_Q_1 1500.0f
 #define mpcAtt_Q_2 100.0f
-#define mpcAtt_Q_3 500.0f
-#define mpcAtt_Q_4 100.0f
+#define mpcAtt_Q_3 150.0f
+#define mpcAtt_Q_4 10.0f
 #define mpcAtt_Q_5 1.0f
 #define mpcAtt_Q_6 1.0f
 
-//{{9713.52, 237.394, 0., 0., 0., 0.}, {237.394, 109.362, 0., 0., 0., 
-  //0.}, {0., 0., 9713.52, 237.394, 0., 0.}, {0., 0., 237.394, 109.362, 
-  //0., 0.}, {0., 0., 0., 0., 8580.14, 920107.}, {0., 0., 0., 0., 
-  //920107., 1.97343*10^8}}
+//Qf for 1500,100,150,10,1,1 and 1,5000,1e10
+//{{17760.1, 406.515, 0., 0., 0., 0.}, 
+//{406.515, 110.167, 0., 0., 0., 0.}, 
+//{0., 0., 1898.2, 76.5355, 0., 0.}, 
+//{0., 0., 76.5355, 22.2999, 0., 0.}, 
+//{0., 0., 0., 0., 859.837, 9210.74}, 
+//{0., 0., 0., 0., 9210.74, 197763.}}
 
-//{{20977.7, 488.167, 0., 0., 0., 0.}
-	//{488.167, 115.803, 0., 0., 0., 0.}
-	//{0., 0., 20977.7, 488.167, 0., 0.}
-	//{0., 0., 488.167, 115.803, 0., 0.}
-	//{0., 0., 0., 0., 8580.14, 920107.}
-	//{0., 0., 0., 0., 920107., 1.97343*10^8}}
-
-#define mpcAtt_Qf_1 29713.52
-#define mpcAtt_Qf_2 109.362
-#define mpcAtt_Qf_3 29713.52
-#define mpcAtt_Qf_4 109.362
-#define mpcAtt_Qf_5 8580.14
-#define mpcAtt_Qf_6 1.97343e8
-#define mpcAtt_Qf_1_2 237.394
-#define mpcAtt_Qf_3_4 237.394
-#define mpcAtt_Qf_5_6 920107
+#define mpcAtt_Qf_1 17760.1
+#define mpcAtt_Qf_2 110.167
+#define mpcAtt_Qf_3 1898.2
+#define mpcAtt_Qf_4 22.2999
+#define mpcAtt_Qf_5 859.837
+#define mpcAtt_Qf_6 197763
+#define mpcAtt_Qf_1_2 406.515
+#define mpcAtt_Qf_3_4 76.5355
+#define mpcAtt_Qf_5_6 9210.74
 
 
 //2000.000000,2000.000000,10000000000000.000000
-#define mpcAtt_R_1 1000.0f
-#define mpcAtt_R_2 1000.0f
+#define mpcAtt_R_1 1.0f
+#define mpcAtt_R_2 5000.0f
 #define mpcAtt_R_3 100000000000.0f
 
 // Default MPC ALTITUDE weights Q (Qf) and R
@@ -143,14 +139,15 @@ Keyboard listening...
 #define ekf_Q_18 1.0e20f
 
 // Default PID gains
-#define pid_gyro_kp 6e-2f
+#define pid_gyro_kp 2e-2f
 #define pid_gyro_ki 0.0f
 #define pid_gyro_kd 0.0f
-#define pid_angle_kp 2.0f
-#define pid_angle_ki 1.0e-2f
+#define pid_angle_kp 4.0f
+#define pid_angle_ki 3.0e-1f
 #define pid_angle_kd 0.0f
 
- //{0.045000,0.000000,0.000000,1.500000,1.000000,0.000000}
+// pid_angle_ki 6.0e-1f for PID controller!
+ //{0.045000,0.000000,0.000000,1.500000,1.000000,0.000000} for c_m=23... and without batteries
 
 typedef struct _structPipe{
 	int parent[2];
