@@ -654,40 +654,35 @@ void *threadController( void *arg ) {
 						printf("thrust less than %f\n", thrust);
 					}
 				}
-				controllerCounter++;
-				
-				tau_x = 0.000;
+	
+				//tau_x = 0.000;
 				//tau_y = 0.000;
-				tau_z = 0.000;
+				//tau_z = 0.000;
 				
-				// PWM from tau and thrust using inverse of M matrix from controller paper
-				PWM[0] = sqrt( (  2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
-				PWM[1] = sqrt( ( -2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
-				PWM[2] = sqrt( ( -2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
-				PWM[3] = sqrt( (  2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
-				
-				PWM[0] = ( (  2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
-				PWM[1] = ( ( -2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
-				PWM[2] = ( ( -2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
-				PWM[3] = ( (  2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
-				
-				printf("[1]=% 1.6f   [2]=% 1.6f   [3]=% 1.6f   [4]=% 1.6f \n", PWM[0], PWM[1],PWM[2],PWM[3]);
-
+				//// PWM from tau and thrust using inverse of M matrix using controller paper frames
+				//PWM[0] = sqrt( (  2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
+				//PWM[1] = sqrt( ( -2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
+				//PWM[2] = sqrt( ( -2*k2*tau_y + thrust*k2*l - k1*l*tau_z )/k1k2l4 );
+				//PWM[3] = sqrt( (  2*k2*tau_x + thrust*k2*l + k1*l*tau_z )/k1k2l4 );
 				//// Create PWM signal from calculated thrust and torques
 				//PWM[0] = sqrt( (  2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				//PWM[1] = sqrt( (  2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				//PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				//PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+				//// PWM from tau and thrust using inverse of M matrix using our own frames!
+				PWM[0] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+				PWM[1] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+				PWM[2] = sqrt( (  2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+				PWM[3] = sqrt( (  2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
 				
-				PWM[0]=0;
-				PWM[1]=0;
-				PWM[2]=0;
-				PWM[3]=0;
+				//printf("[1]=% 1.6f   [2]=% 1.6f   [3]=% 1.6f   [4]=% 1.6f \n", PWM[0], PWM[1],PWM[2],PWM[3]);
 				
 				//PWM[0]=0;
-				//PWM[1]=10;
+				//PWM[1]=0;
 				//PWM[2]=0;
 				//PWM[3]=0;
+				
+				controllerCounter++;
 			}
 
 			// If false, force PWM outputs to zero.
@@ -808,17 +803,36 @@ static void getAltitudeInputConstraints( double *dist , struct AltParams *altPar
 	double G[8];
 	double umin, umax;
 	
+	//// Create PWM signal from calculated thrust and torques
+	//PWM[0] = sqrt( (  2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[1] = sqrt( (  2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[2] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[3] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//// PWM from tau and thrust using inverse of M matrix using our own frames!
+	//PWM[0] = sqrt( ( -2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[1] = sqrt( ( -2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[2] = sqrt( (  2*mdl_param.b*tau_x + thrust*mdl_param.L*mdl_param.b + mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	//PWM[3] = sqrt( (  2*mdl_param.b*tau_y + thrust*mdl_param.L*mdl_param.b - mdl_param.L*mdl_param.k*tau_z )/Lbc_mk4 );
+	
 	// equations to find minimum G representing 0% PWM
-	G[0]=-(2*mdl_param.b*attU_all[0] + mdl_param.L*mdl_param.k*attU_all[2] - mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
-	G[1]=(mdl_param.L*mdl_param.k*attU_all[2] - 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
-	G[2]=(2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
-	G[3]=(2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	//G[0]=-(2*mdl_param.b*attU_all[0] + mdl_param.L*mdl_param.k*attU_all[2] - mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	//G[1]=(mdl_param.L*mdl_param.k*attU_all[2] - 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	//G[2]=(2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	//G[3]=(2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	G[0]=( 2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	G[1]=( 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	G[2]=(-2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
+	G[3]=(-2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(mdl_param.L*mdl_param.b*mdl_param.mass);
 
 	// equations to find maximum G representing 100% PWM
-	G[4]=-(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[0] + mdl_param.L*mdl_param.k*attU_all[2] - mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) - 10000))/mdl_param.mass;
-	G[5]=(4*mdl_param.c_m*mdl_param.k*((mdl_param.L*mdl_param.k*attU_all[2] - 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
-	G[6]=(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
-	G[7]=(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	//G[4]=-(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[0] + mdl_param.L*mdl_param.k*attU_all[2] - mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) - 10000))/mdl_param.mass;
+	//G[5]=(4*mdl_param.c_m*mdl_param.k*((mdl_param.L*mdl_param.k*attU_all[2] - 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	//G[6]=(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	//G[7]=(4*mdl_param.c_m*mdl_param.k*((2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	G[4]=-(4*mdl_param.c_m*mdl_param.k*((-2*mdl_param.b*attU_all[0] + mdl_param.L*mdl_param.k*attU_all[2] - mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) - 10000))/mdl_param.mass;
+	G[5]=(4*mdl_param.c_m*mdl_param.k*((mdl_param.L*mdl_param.k*attU_all[2] + 2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	G[6]=(4*mdl_param.c_m*mdl_param.k*((-2*mdl_param.b*attU_all[0] - mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
+	G[7]=(4*mdl_param.c_m*mdl_param.k*((-2*mdl_param.b*attU_all[1] + mdl_param.L*mdl_param.k*attU_all[2] + mdl_param.L*mdl_param.b*dist[2]*mdl_param.mass)/(4*mdl_param.L*mdl_param.b*mdl_param.c_m*mdl_param.k) + 10000))/mdl_param.mass;
 
 	// max of G[0:3] becomes altitude control umin
 	umin=G[0];
@@ -905,19 +919,19 @@ static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInp
 	//printf("umaxumin_0(% 1.4f % 1.4f) umaxumin_1(% 1.4f % 1.4f) umaxumin_2(% 1.4f % 1.4f)\n", attParams->umax[0]-dist[0], attParams->umin[0]-dist[0], attParams->umax[1]-dist[1], attParams->umin[1]-dist[1], attParams->umax[2]-dist[2], attParams->umin[2]-dist[2]);
 	
 	// Get measurements and references from global data
-	//attInputs->x0[0] = meas[6] - phi_dist;			//phi - coming from the pos controller
-	//attInputs->x0[1] = meas[9] - ref[9];		//phidots
-	//attInputs->x0[2] = +1*(meas[7] - theta_dist);			//theta - coming from the pos controller
-	//attInputs->x0[3] = +1*(meas[10] - ref[10]);	//thetadot
-	//attInputs->x0[4] = meas[8] - ref[8];		//psi
-	//attInputs->x0[5] = meas[11] - ref[11];	//psidot
-	// Rotate 90 around its Z
-	attInputs->x0[0] = -1*(meas[7] - theta_dist);		//phi 
-	attInputs->x0[1] = -1*(meas[10] - ref[10]);			//phidots
-	attInputs->x0[2] = meas[6] - phi_dist;				//theta 
-	attInputs->x0[3] = meas[9] - ref[9];				//thetadot
-	attInputs->x0[4] = meas[8] - ref[8];				//psi
-	attInputs->x0[5] = meas[11] - ref[11];				//psidot
+	attInputs->x0[0] = meas[6] - phi_dist;			//phi - coming from the pos controller
+	attInputs->x0[1] = meas[9] - ref[9];		//phidots
+	attInputs->x0[2] = +1*(meas[7] - theta_dist);			//theta - coming from the pos controller
+	attInputs->x0[3] = +1*(meas[10] - ref[10]);	//thetadot
+	attInputs->x0[4] = meas[8] - ref[8];		//psi
+	attInputs->x0[5] = meas[11] - ref[11];	//psidot
+	//// Rotate 90 around its Z LH
+	//attInputs->x0[0] = -1*(meas[7] - theta_dist);		//phi 
+	//attInputs->x0[1] = -1*(meas[10] - ref[10]);			//phidots
+	//attInputs->x0[2] = meas[6] - phi_dist;				//theta 
+	//attInputs->x0[3] = meas[9] - ref[9];				//thetadot
+	//attInputs->x0[4] = meas[8] - ref[8];				//psi
+	//attInputs->x0[5] = meas[11] - ref[11];				//psidot
 	
 	// Integrator action for angle state to get offset free control
 	 if(mpcAtt_ff){
@@ -947,9 +961,6 @@ static void controllerAtt( struct AttParams *attParams, struct AttInputs *attInp
 		// attU_all[1] -= dist[1];
 		// attU_all[2] -= dist[2];
 	}
-	
-	//Flip to match tha axes!
-	//tau_y *= -1;
 
 	for ( i = 0; i < attParams->m*attParams->T; i++ ) {
 		if(isnan(attU_all[i])!=0){
