@@ -1939,17 +1939,26 @@ void EKF_9x9(double *Phat, double *xhat, double *u, double *ymeas, double *Q, do
 
 // Nonlinear Model for attitude states (6x1)
  void fx_6x1(double *xhat, double *xhat_prev, double *u, double Ts){
-	 xhat[0]=xhat_prev[0] + Ts*(xhat_prev[3] + xhat_prev[5]*cos(xhat_prev[0])*tan(xhat_prev[1]) + xhat_prev[4]*sin(xhat_prev[0])*tan(xhat_prev[1]));
+	/* 
+	xhat[0]=xhat_prev[0] + Ts*(xhat_prev[3] + xhat_prev[5]*cos(xhat_prev[0])*tan(xhat_prev[1]) + xhat_prev[4]*sin(xhat_prev[0])*tan(xhat_prev[1]));
 	 xhat[1]=xhat_prev[1] + Ts*(xhat_prev[4]*cos(xhat_prev[0]) - xhat_prev[5]*sin(xhat_prev[0]));
 	 xhat[2]=xhat_prev[2] + Ts*((xhat_prev[5]*cos(xhat_prev[0]))/cos(xhat_prev[1]) + (xhat_prev[4]*sin(xhat_prev[0]))/cos(xhat_prev[1]));
 	 xhat[3]=xhat_prev[3] - Ts*((xhat_prev[4]*xhat_prev[5]*(par_i_yy - par_i_zz))/par_i_xx - (par_L*par_c_m*par_k*(pow(u[0],2) - pow(u[2],2)))/par_i_xx);
 	 xhat[4]=xhat_prev[4] + Ts*((xhat_prev[3]*xhat_prev[5]*(par_i_xx - par_i_zz))/par_i_yy + (par_L*par_c_m*par_k*(pow(u[1],2) - pow(u[3],2)))/par_i_yy);
 	 xhat[5]=xhat_prev[5] + Ts*((par_b*par_c_m*(pow(u[0],2) - pow(u[1],2) + pow(u[2],2) - pow(u[3],2)))/par_i_zz - (xhat_prev[3]*xhat_prev[4]*(par_i_xx - par_i_yy))/par_i_zz);
- }
+ 	*/
+	xhat[0]=xhat_prev[0] + Ts*(xhat_prev[3] + xhat_prev[5]*cos(xhat_prev[0])*tan(xhat_prev[1]) + xhat_prev[4]*sin(xhat_prev[0])*tan(xhat_prev[1]));
+	xhat[1]=xhat_prev[1] + Ts*(xhat_prev[4]*cos(xhat_prev[0]) - xhat_prev[5]*sin(xhat_prev[0]));
+	xhat[2]=xhat_prev[2] + Ts*((xhat_prev[5]*cos(xhat_prev[0]))/cos(xhat_prev[1]) + (xhat_prev[4]*sin(xhat_prev[0]))/cos(xhat_prev[1]));
+	xhat[3]=xhat_prev[3] - Ts*((xhat_prev[4]*xhat_prev[5]*(par_i_yy - par_i_zz))/par_i_xx + (par_L*par_c_m*par_k*(pow(u[0],2) - pow(u[2],2)))/par_i_xx);
+	xhat[4]=xhat_prev[4] + Ts*((xhat_prev[3]*xhat_prev[5]*(par_i_xx - par_i_zz))/par_i_yy - (par_L*par_c_m*par_k*(pow(u[1],2) - pow(u[3],2)))/par_i_yy);
+	xhat[5]=xhat_prev[5] + Ts*((par_b*par_c_m*(pow(u[0],2) - pow(u[1],2) + pow(u[2],2) - pow(u[3],2)))/par_i_zz - (xhat_prev[3]*xhat_prev[4]*(par_i_xx - par_i_yy))/par_i_zz);
+}
 
 // Jacobian of model for attitude states (6x6)
  void Jfx_6x6(double *xhat, double *A, double *u, double Ts){
-	 A[0]=Ts*(xhat[4]*cos(xhat[0])*tan(xhat[1]) - xhat[5]*sin(xhat[0])*tan(xhat[1])) + 1;A[1]=-Ts*(xhat[5]*cos(xhat[0]) + xhat[4]*sin(xhat[0]));A[2]=Ts*((xhat[4]*cos(xhat[0]))/cos(xhat[1]) - (xhat[5]*sin(xhat[0]))/cos(xhat[1]));A[3]=0;A[4]=0;A[5]=0;A[6]=Ts*(xhat[5]*cos(xhat[0])*(pow(tan(xhat[1]),2) + 1) + xhat[4]*sin(xhat[0])*(pow(tan(xhat[1]),2) + 1));A[7]=1;A[8]=Ts*((xhat[5]*cos(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2) + (xhat[4]*sin(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2));A[9]=0;A[10]=0;A[11]=0;A[12]=0;A[13]=0;A[14]=1;A[15]=0;A[16]=0;A[17]=0;A[18]=Ts;A[19]=0;A[20]=0;A[21]=1;A[22]=(Ts*xhat[5]*(par_i_xx - par_i_zz))/par_i_yy;A[23]=-(Ts*xhat[4]*(par_i_xx - par_i_yy))/par_i_zz;A[24]=Ts*sin(xhat[0])*tan(xhat[1]);A[25]=Ts*cos(xhat[0]);A[26]=(Ts*sin(xhat[0]))/cos(xhat[1]);A[27]=-(Ts*xhat[5]*(par_i_yy - par_i_zz))/par_i_xx;A[28]=1;A[29]=-(Ts*xhat[3]*(par_i_xx - par_i_yy))/par_i_zz;A[30]=Ts*cos(xhat[0])*tan(xhat[1]);A[31]=-Ts*sin(xhat[0]);A[32]=(Ts*cos(xhat[0]))/cos(xhat[1]);A[33]=-(Ts*xhat[4]*(par_i_yy - par_i_zz))/par_i_xx;A[34]=(Ts*xhat[3]*(par_i_xx - par_i_zz))/par_i_yy;A[35]=1;
+	 //A[0]=Ts*(xhat[4]*cos(xhat[0])*tan(xhat[1]) - xhat[5]*sin(xhat[0])*tan(xhat[1])) + 1;A[1]=-Ts*(xhat[5]*cos(xhat[0]) + xhat[4]*sin(xhat[0]));A[2]=Ts*((xhat[4]*cos(xhat[0]))/cos(xhat[1]) - (xhat[5]*sin(xhat[0]))/cos(xhat[1]));A[3]=0;A[4]=0;A[5]=0;A[6]=Ts*(xhat[5]*cos(xhat[0])*(pow(tan(xhat[1]),2) + 1) + xhat[4]*sin(xhat[0])*(pow(tan(xhat[1]),2) + 1));A[7]=1;A[8]=Ts*((xhat[5]*cos(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2) + (xhat[4]*sin(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2));A[9]=0;A[10]=0;A[11]=0;A[12]=0;A[13]=0;A[14]=1;A[15]=0;A[16]=0;A[17]=0;A[18]=Ts;A[19]=0;A[20]=0;A[21]=1;A[22]=(Ts*xhat[5]*(par_i_xx - par_i_zz))/par_i_yy;A[23]=-(Ts*xhat[4]*(par_i_xx - par_i_yy))/par_i_zz;A[24]=Ts*sin(xhat[0])*tan(xhat[1]);A[25]=Ts*cos(xhat[0]);A[26]=(Ts*sin(xhat[0]))/cos(xhat[1]);A[27]=-(Ts*xhat[5]*(par_i_yy - par_i_zz))/par_i_xx;A[28]=1;A[29]=-(Ts*xhat[3]*(par_i_xx - par_i_yy))/par_i_zz;A[30]=Ts*cos(xhat[0])*tan(xhat[1]);A[31]=-Ts*sin(xhat[0]);A[32]=(Ts*cos(xhat[0]))/cos(xhat[1]);A[33]=-(Ts*xhat[4]*(par_i_yy - par_i_zz))/par_i_xx;A[34]=(Ts*xhat[3]*(par_i_xx - par_i_zz))/par_i_yy;A[35]=1;
+	A[0]=Ts*(xhat[4]*cos(xhat[0])*tan(xhat[1]) - xhat[5]*sin(xhat[0])*tan(xhat[1])) + 1;A[1]=-Ts*(xhat[5]*cos(xhat[0]) + xhat[4]*sin(xhat[0]));A[2]=Ts*((xhat[4]*cos(xhat[0]))/cos(xhat[1]) - (xhat[5]*sin(xhat[0]))/cos(xhat[1]));A[3]=0;A[4]=0;A[5]=0;A[6]=Ts*(xhat[5]*cos(xhat[0])*(pow(tan(xhat[1]),2) + 1) + xhat[4]*sin(xhat[0])*(pow(tan(xhat[1]),2) + 1));A[7]=1;A[8]=Ts*((xhat[5]*cos(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2) + (xhat[4]*sin(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2));A[9]=0;A[10]=0;A[11]=0;A[12]=0;A[13]=0;A[14]=1;A[15]=0;A[16]=0;A[17]=0;A[18]=Ts;A[19]=0;A[20]=0;A[21]=1;A[22]=(Ts*xhat[5]*(par_i_xx - par_i_zz))/par_i_yy;A[23]=-(Ts*xhat[4]*(par_i_xx - par_i_yy))/par_i_zz;A[24]=Ts*sin(xhat[0])*tan(xhat[1]);A[25]=Ts*cos(xhat[0]);A[26]=(Ts*sin(xhat[0]))/cos(xhat[1]);A[27]=-(Ts*xhat[5]*(par_i_yy - par_i_zz))/par_i_xx;A[28]=1;A[29]=-(Ts*xhat[3]*(par_i_xx - par_i_yy))/par_i_zz;A[30]=Ts*cos(xhat[0])*tan(xhat[1]);A[31]=-Ts*sin(xhat[0]);A[32]=(Ts*cos(xhat[0]))/cos(xhat[1]);A[33]=-(Ts*xhat[4]*(par_i_yy - par_i_zz))/par_i_xx;A[34]=(Ts*xhat[3]*(par_i_xx - par_i_zz))/par_i_yy;A[35]=1;
  }
 
 // Nonlinear Model for position states (9x1)
