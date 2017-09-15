@@ -45,6 +45,10 @@ static void *threadPipeCommunicationToSensor(void*);
 void qNormalize(double*);
 void q2euler(double*, double*);
 void q2euler_zyx(double *, double *);
+void magnetometerUpdate(double*, double*, double*, double*, double*, double);
+void Qq(double*, double*);
+void dQqdq(double*, double*, double*, double*, double*, double*, double*);
+void sensorCalibration(double *, double *, double *, double *, int );
 
 void ekfCalibration6x6(double*, double*, double*, double*, int);
 void ekfCalibration9x9_bias(double*, double*, double*, double*, int);
@@ -454,7 +458,7 @@ static void *threadSensorFusion (void *arg){
 	structPipe *ptrPipe2 = pipeArrayStruct->pipe2;
 	
 	// Define local variables
-	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, magRawRot[3], tempRaw=0, euler[3]={0,0,0}; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, mag0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
+	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, magRawRot[3]={0}, tempRaw=0, euler[3]={0,0,0}; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, mag0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
 	double L=1, normMag=0, sensorDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; // Racc[9]={0,0,0,0,0,0,0,0,0}, Rgyr[9]={0,0,0,0,0,0,0,0,0}, Rmag[9]={0,0,0,0,0,0,0,0,0}, Patt[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}, q[4]={1,0,0,0},
 	double posRaw[3]={0,0,0}, posRawPrev[3]={0,0,0}, stateDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 	double tsTrue=tsSensorsFusion; // true sampling time measured using clock_gettime() ,ts_save_buffer
@@ -761,15 +765,45 @@ static void *threadSensorFusion (void *arg){
 					//outlierFlagPercentage += outlierFlagMem[999];
 									
 					// Orientation estimation with Madgwick filter
-					MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
-					//MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
-					
+					//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
+					MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+
 					// Copy out the returned quaternions from the filter
 					q_comp[0]=q0;
 					q_comp[1]=-q1;
 					q_comp[2]=-q2;
 					q_comp[3]=-q3;
 					
+				//// Calibration routine
+				//if ( magCalibrationCounter >  CALIBRATION) {
+					//if (magCalibrationCounter==0){
+						//printf("Sensor Calibration started\n");
+						//sensorCalibration(Racc, Rgyr, Rmag, acc0, gyr0, mag0, accCal, gyrCal, magCal, accRaw, gyrRaw, magRawRot, calibrationCounter);
+						////printf("calibrationCounter: %i\n", calibrationCounter);
+						//magCalibrationCounter++;
+					//}
+					//else if(calibrationCounter<CALIBRATION){
+						//sensorCalibration(Racc, Rgyr, Rmag, acc0, gyr0, mag0, accCal, gyrCal, magCal, accRaw, gyrRaw, magRawRot, calibrationCounter);
+						////printf("calibrationCounter: %i\n", calibrationCounter);
+						//magCalibrationCounter++;
+					//}
+					//else if(calibrationCounter==CALIBRATION){
+						//sensorCalibration(Rmag, mag0, magCal, magRawRot, calibrationCounter);			
+						//// Save calibration in 'settings.txt' if it does not exist
+						//saveSettings(Rmag,"Rmag",sizeof(Rmag)/sizeof(double));
+						//saveSettings(mag0,"mag0",sizeof(mag0)/sizeof(double));
+						////printf("calibrationCounter: %i\n", calibrationCounter);
+						//printf("Sensor Calibration finish\n");
+						//magCalibrationCounter++;
+					//}
+				//}
+				//else {
+					////void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double L)
+					////while (  ) {
+						////magnetometerUpdate(q_comp, P_mag, magRawRot, m0, Rm, L);
+					////}
+				//}
+				
 					// Quaternions to eulers (rad)
 					q2euler_zyx(euler,q_comp);
 				
@@ -779,7 +813,7 @@ static void *threadSensorFusion (void *arg){
 							// Mean (bias) accelerometer, gyroscope and magnetometer
 							euler_mean[0]+=euler[0];
 							euler_mean[1]+=euler[1];
-							euler_mean[2]+=euler[2];
+							euler_mean[2]+=euler[2];												
 							counterCalEuler++;
 							printf("euler_sum: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0], euler_mean[1], euler_mean[2], counterCalEuler);
 						}
@@ -1067,11 +1101,14 @@ static void *threadSensorFusion (void *arg){
 						 stateDataBuffer[18]=0; // bias tauz
 						 
 						//stateDataBuffer[15]=1; // ready flag for MPC to start using the initial conditions given by EKF.
-
-						if(ekfPrint && tSensorFusionCounter % 10 == 0){
-							printf("xhat: (pos) % 1.4f % 1.4f % 1.4f (vel) % 1.4f % 1.4f % 1.4f (dist pos) % 1.4f % 1.4f % 1.4f (ang_e) % 2.4f % 2.4f % 2.4f (omeg_e) % 2.4f % 2.4f % 2.4f (freq) % 3.1f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9[3],xhat9x9[4],xhat9x9[5],xhat9x9[6],xhat9x9[7],xhat9x9[8],xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI),xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), sampleFreq);
-						}
+						
 						tSensorFusionCounter++;
+						
+						if(ekfPrint && tSensorFusionCounter % 10 == 0){
+							double norm_mag = 1/sqrt(magRawRot[0] * magRawRot[0] + magRawRot[1] * magRawRot[1] + magRawRot[2] * magRawRot[2]);
+							//printf("xhat: (pos) % 1.4f % 1.4f % 1.4f (vel) % 1.4f % 1.4f % 1.4f (dist pos) % 1.4f % 1.4f % 1.4f (ang_e) % 2.4f % 2.4f % 2.4f (omeg_e) % 2.4f % 2.4f % 2.4f (freq) % 3.1f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9[3],xhat9x9[4],xhat9x9[5],xhat9x9[6],xhat9x9[7],xhat9x9[8],xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI),xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), sampleFreq);
+							printf("(mag) % 1.4f % 1.4f % 1.4f (atan2(y/x)) % 1.4f\n", magRawRot[0]*norm_mag, magRawRot[1]*norm_mag, magRawRot[2]*norm_mag, atan2(magRawRot[1]*norm_mag, magRawRot[0]*norm_mag)*(180/PI));
+						}
 						
 						if(ekfPrint6States && tSensorFusionCounter % 10 == 0){
 							//printf("xhat: % 1.4f % 1.4f % 1.4f % 2.4f % 2.4f % 2.4f (euler_meas) % 2.4f % 2.4f % 2.4f (gyr_meas) % 2.4f % 2.4f % 2.4f (outlier) %i %i (freq) %3.5f u: %3.4f %3.4f %3.4f %3.4f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9_bias[0]*(180/PI),xhat9x9_bias[1]*(180/PI),xhat9x9_bias[2]*(180/PI), ymeas9x9_bias[0]*(180/PI),ymeas9x9_bias[1]*(180/PI),ymeas9x9_bias[2]*(180/PI), gyrRaw[0], gyrRaw[1], gyrRaw[2], outlierFlag, outlierFlagPercentage, sampleFreq, uControl[0], uControl[1], uControl[2], uControl[3]);
@@ -1296,7 +1333,6 @@ static void *threadPWMControl(void *arg){
 	}
 	return NULL;
 }
-
 
 /******************************************************************/
 /****************************FUNCTIONS*****************************/
@@ -2004,6 +2040,213 @@ void saturation(double *var, int index, double limMin, double limMax){
 	else if(var[index]>limMax){
 		var[index]=limMax;
 	}
+}
+
+// Magnetometer part: mu_m
+void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double L){
+	// local variables
+	int ione=1, n=3, k=3, m=3;
+	double fone=1, fzero=0, ykm[3], ykm2[9], Q[9], h1[9], h2[9], h3[9], h4[9], hd[12], Smag[9], P_temp[16], S_temp[12], K_temp[12], Smag_inv[9], ymag_diff[3], state_temp[4];
+	double fkm[3]={0,0,0}, K[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}, a=0.05;
+	
+	// check if acc is valid (isnan and all!=0)
+	// outlier detection
+	L=(1-a)*L+a*sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)); // recursive magnetometer compensator
+	if (sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) > L){
+		// dont use measurement
+		//printf("Magnetometer Outlier\n");
+	}
+	else{
+		// continue measurement
+		// mu_m
+		// ykm=Qq(x)'*ykm2=Qq(x)'*(m0+fkm); magnetometer and quaternion model relation
+		Qq(Q, q);
+		ykm2[0]=m0[0]+fkm[0];
+		ykm2[1]=m0[1]+fkm[1];
+		ykm2[2]=m0[2]+fkm[2];
+		F77_CALL(dgemv)("t",&m,&n,&fone,Q,&m,ykm2,&ione,&fzero,ykm,&ione);
+		
+		// [h1 h2 h3 h4]=dQqdq(x); jacobian
+		// hd=[h1'*m0 h2'*m0 h3'*m0 h4'*m0];
+		dQqdq(h1, h2, h3, h4, hd, q, m0);	
+		
+		// Smag=hd*P*hd'+Rm; innovation covariance
+		n=4; k=4; m=3;
+		F77_CALL(dgemm)("n","n",&m,&n,&k,&fone,hd,&m,P,&k,&fzero,S_temp,&m);
+		n=3; k=4; m=3;
+		F77_CALL(dgemm)("n","t",&m,&n,&k,&fone,S_temp,&m,hd,&n,&fzero,Smag,&m);
+		Smag[0]+=Rm[0];
+		Smag[1]+=Rm[1];
+		Smag[2]+=Rm[2];
+		Smag[3]+=Rm[3];
+		Smag[4]+=Rm[4];
+		Smag[5]+=Rm[5];
+		Smag[6]+=Rm[6];
+		Smag[7]+=Rm[7];
+		Smag[8]+=Rm[8];
+
+		// K=P*hd'/Smag; kalman gain
+		n=3; k=4; m=4;
+		F77_CALL(dgemm)("n","t",&m,&n,&k,&fone,P,&m,hd,&n,&fzero,K_temp,&m);	
+		mInverse(Smag, Smag_inv);
+		n=3; k=3; m=4;
+		F77_CALL(dgemm)("n","n",&m,&n,&k,&fone,K_temp,&m,Smag_inv,&k,&fzero,K,&m);		
+				
+		// x=x+K*ymag_diff=x+K*(ymag-ykm); state update
+		ymag_diff[0]=ymag[0]-ykm[0];
+		ymag_diff[1]=ymag[1]-ykm[1];
+		ymag_diff[2]=ymag[2]-ykm[2];
+		n=3, k=4, m=4;
+		F77_CALL(dgemv)("n",&m,&n,&fone,K,&m,ymag_diff,&ione,&fzero,state_temp,&ione);
+		q[0]+=state_temp[0];
+		q[1]+=state_temp[1];
+		q[2]+=state_temp[2];
+		q[3]+=state_temp[3];
+		
+		// P=P-K*S*K'; covariance update
+		n=3; k=3; m=4;
+		F77_CALL(dgemm)("n","n",&m,&n,&k,&fone,K,&m,Smag,&k,&fzero,K_temp,&m);
+		n=4; k=3; m=4;
+		F77_CALL(dgemm)("n","t",&m,&n,&k,&fone,K_temp,&m,K,&n,&fzero,P_temp,&m);
+		P[0]-=P_temp[0];
+		P[1]-=P_temp[1];
+		P[2]-=P_temp[2];
+		P[3]-=P_temp[3];
+		P[4]-=P_temp[4];
+		P[5]-=P_temp[5];
+		P[6]-=P_temp[6];
+		P[7]-=P_temp[7];
+		P[8]-=P_temp[8];
+		P[9]-=P_temp[9];
+		P[10]-=P_temp[10];
+		P[11]-=P_temp[11];
+		P[12]-=P_temp[12];
+		P[13]-=P_temp[13];
+		P[14]-=P_temp[14];
+		P[15]-=P_temp[15];
+	}
+
+}
+
+// Sensor calibration
+void sensorCalibration(double *Rmag, double *mag0, double *magCal, double *ymag, int counterCal){
+	// Calibration routine to get mean, variance and std_deviation
+	if(counterCal==CALIBRATION){
+		// Mean (bias) accelerometer, gyroscope and magnetometer
+		for (int i=0;i<CALIBRATION;i++){
+			mag0[0]+=magCal[i*3];
+			mag0[1]+=magCal[i*3+1];
+			mag0[2]+=magCal[i*3+2];
+		}
+		mag0[0]/=CALIBRATION;
+		mag0[1]/=CALIBRATION;
+		mag0[2]/=CALIBRATION;
+		
+		// Sum up for variance calculation
+		for (int i=0;i<CALIBRATION;i++){
+			Rmag[0]+=pow((magCal[i*3] - mag0[0]), 2);
+			Rmag[4]+=pow((magCal[i*3+1] - mag0[1]), 2);
+			Rmag[8]+=pow((magCal[i*3+2] - mag0[2]), 2);
+		}
+		// Variance (sigma)
+		Rmag[0]/=CALIBRATION;
+		Rmag[4]/=CALIBRATION;
+		Rmag[8]/=CALIBRATION;
+		
+		// Print results
+		printf("Mean (bias) magnetometer\n");
+		printmat(mag0,3,1);
+		printf("Covariance (sigma) magnetometer\n");
+		printmat(Rmag,3,3);
+	}
+	// Default i save calibrartion data
+	else{
+		magCal[counterCal*3]=ymag[0];
+		magCal[counterCal*3+1]=ymag[1];
+		magCal[counterCal*3+2]=ymag[2];
+	}		
+}
+
+// Quaternions matrix
+void Qq(double *Q, double *q){
+	// input q0->q3
+	//float q0, q1, q2, q3;
+	Q[0] = 2*(pow(q[0],2)+pow(q[1],2))-1;
+	Q[3] = 2*(q[1]*q[2]-q[0]*q[3]);
+	Q[6] = 2*(q[1]*q[3]+q[0]*q[2]);
+	Q[1] = 2*(q[1]*q[2]+q[0]*q[3]);
+	Q[4] = 2*(pow(q[0],2)+pow(q[2],2))-1;
+	Q[7] = 2*(q[2]*q[3]-q[0]*q[1]);
+	Q[2] = 2*(q[1]*q[3]-q[0]*q[2]);
+	Q[5] = 2*(q[2]*q[3]+q[0]*q[1]);
+	Q[8] = 2*(pow(q[0],2)+pow(q[3],2))-1;
+}
+
+// Quaternions Jacobian
+void dQqdq(double *h1, double *h2, double *h3, double *h4, double *hd, double *q, double *biasvec){
+	// Q=dQqdq(q) Jacobian
+	// input q0->q3
+	// [h1 h2 h3 h4]=dQqdq(x);
+	h1[0] = 4*q[0];
+	h1[1] = 2*q[3];
+	h1[2] = -2*q[2];
+	h1[3] = -2*q[3];
+	h1[4] = 4*q[0];
+	h1[5] = 2*q[1];
+	h1[6] = 2*q[2];
+	h1[7] = -2*q[1];
+	h1[8] = 4*q[0];
+	
+	//printmat(h1, 3, 3);
+	
+	h2[0] = 4*q[1];
+	h2[1] = 2*q[2];
+	h2[2] = 2*q[3];
+	h2[3] = 2*q[2];
+	h2[4] = 0;
+	h2[5] = 2*q[0]; 
+	h2[6] = 2*q[3];
+	h2[7] = -2*q[0];
+	h2[8] = 0;
+	
+	//printmat(h2, 3, 3);
+	
+	h3[0] = 0;
+	h3[1] = 2*q[1];
+	h3[2] = -2*q[0];
+	h3[3] = 2*q[1];
+	h3[4] = 4*q[2];
+	h3[5] = 2*q[3];
+	h3[6] = 2*q[0];
+	h3[7] = 2*q[3];
+	h3[8] = 0;
+	
+	//printmat(h3, 3, 3);
+	
+	h4[0] = 0;
+	h4[1] = 2*q[0];
+	h4[2] = 2*q[1];
+	h4[3] = -2*q[0];
+	h4[4] = 0;
+	h4[5] = 2*q[2];
+	h4[6] = 2*q[1];
+	h4[7] = 2*q[2];
+	h4[8] = 4*q[3];
+	
+	//printmat(h4, 3, 3);
+	
+	// hd=[h1'*biasvec h2'*biasvec h3'*biasvec h4'*biasvec];
+	double hd_temp[3];
+	int n=3, m=3, ione=1;
+	double fone=1, fzero=0;
+	F77_CALL(dgemv)("t",&m,&n,&fone,h1,&m,biasvec,&ione,&fzero,hd_temp,&ione);
+	memcpy(hd, hd_temp, sizeof(hd_temp));
+	F77_CALL(dgemv)("t",&m,&n,&fone,h2,&m,biasvec,&ione,&fzero,hd_temp,&ione);
+	memcpy(hd+3, hd_temp, sizeof(hd_temp));
+	F77_CALL(dgemv)("t",&m,&n,&fone,h3,&m,biasvec,&ione,&fzero,hd_temp,&ione);
+	memcpy(hd+6, hd_temp, sizeof(hd_temp));
+	F77_CALL(dgemv)("t",&m,&n,&fone,h4,&m,biasvec,&ione,&fzero,hd_temp,&ione);
+	memcpy(hd+9, hd_temp, sizeof(hd_temp));
 }
 
 // Low Pass Filter 24 order
