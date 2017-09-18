@@ -30,6 +30,7 @@
 
 #define PI 3.141592653589793
 #define CALIBRATION 1000
+#define MAG_CALIBRATION 1000
 #define BUFFER 100
 
 /******************************************************************/
@@ -45,7 +46,7 @@ static void *threadPipeCommunicationToSensor(void*);
 void qNormalize(double*);
 void q2euler(double*, double*);
 void q2euler_zyx(double *, double *);
-void magnetometerUpdate(double*, double*, double*, double*, double*, double);
+void magnetometerUpdate(double*, double*, double*, double*, double*, double*, double);
 void Qq(double*, double*);
 void dQqdq(double*, double*, double*, double*, double*, double*, double*);
 void sensorCalibration(double *, double *, double *, double *, int );
@@ -85,6 +86,14 @@ static double tuningEkfData[18]={ekf_Q_1,ekf_Q_2,ekf_Q_3,ekf_Q_4,ekf_Q_5,ekf_Q_6
 
 // Variables
 static int beaconConnected=0;
+static const int ione = 1;
+static const int itwo = 2;
+static const int ithree = 3;
+static const int iseven = 7;
+static const double fone = 1;
+static const double ftwo = 2;
+static const double fzero = 0;
+static const double fmone = -1;
 
 // Mutexes
 static pthread_mutex_t mutexPositionSensorData = PTHREAD_MUTEX_INITIALIZER;
@@ -107,24 +116,24 @@ void startSensors(void *arg1, void *arg2){
 	int threadPID2, threadPID3, threadPID4; //t hreadPID1, 
 	
 	//threadPID1=pthread_create(&threadReadPos, NULL, &threadReadBeacon, NULL);
-	//threadPID2=pthread_create(&threadSenFus, NULL, &threadSensorFusion, &pipeArrayStruct);
+	threadPID2=pthread_create(&threadSenFus, NULL, &threadSensorFusion, &pipeArrayStruct);
 	threadPID3=pthread_create(&threadPWMCtrl, NULL, &threadPWMControl, arg1);
 	threadPID4=pthread_create(&threadCommToSens, NULL, &threadPipeCommunicationToSensor, arg2);
 	
 	// Set up thread scheduler priority for real time tasks
 	struct sched_param paramThread2, paramThread3, paramThread4; // paramThread1, 
 	//paramThread1.sched_priority = PRIORITY_SENSOR_BEACON; // set priorities
-	//paramThread2.sched_priority = PRIORITY_SENSOR_FUSION;
+	paramThread2.sched_priority = PRIORITY_SENSOR_FUSION;
 	paramThread3.sched_priority = PRIORITY_SENSOR_PWM;
 	paramThread4.sched_priority = PRIORITY_SENSOR_PIPE_COMMUNICATION;
 	//if(sched_setscheduler(threadPID1, SCHED_FIFO, &paramThread1)==-1) {perror("sched_setscheduler failed for threadPID1");exit(-1);}
-	//if(sched_setscheduler(threadPID2, SCHED_FIFO, &paramThread2)==-1) {perror("sched_setscheduler failed for threadPID2");exit(-1);}
+	if(sched_setscheduler(threadPID2, SCHED_FIFO, &paramThread2)==-1) {perror("sched_setscheduler failed for threadPID2");exit(-1);}
 	if(sched_setscheduler(threadPID3, SCHED_FIFO, &paramThread3)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
 	if(sched_setscheduler(threadPID4, SCHED_FIFO, &paramThread4)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
 	
 	// If threads created successful, start them
 	//if (!threadPID1) pthread_join( threadReadPos, NULL);
-	//if (!threadPID2) pthread_join( threadSenFus, NULL);
+	if (!threadPID2) pthread_join( threadSenFus, NULL);
 	if (!threadPID3) pthread_join( threadPWMCtrl, NULL);
 	if (!threadPID4) pthread_join( threadCommToSens, NULL);
 }
@@ -458,11 +467,12 @@ static void *threadSensorFusion (void *arg){
 	structPipe *ptrPipe2 = pipeArrayStruct->pipe2;
 	
 	// Define local variables
-	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, magRawRot[3]={0}, tempRaw=0, euler[3]={0,0,0}; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, mag0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
-	double L=1, normMag=0, sensorDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; // Racc[9]={0,0,0,0,0,0,0,0,0}, Rgyr[9]={0,0,0,0,0,0,0,0,0}, Rmag[9]={0,0,0,0,0,0,0,0,0}, Patt[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}, q[4]={1,0,0,0},
+	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, mag0[3]={0.0}, magRawRot[3]={0}, tempRaw=0, euler[3]={0.0}, magCal[3*CALIBRATION]; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
+	double Lmag[1]={1}, normMag=0, Rmag[9]={0.0}, sensorDataBuffer[19]={0.0}; // Racc[9]={0,0,0,0,0,0,0,0,0}, Rgyr[9]={0,0,0,0,0,0,0,0,0},  q[4]={1,0,0,0},
+	double Pmag[16]={1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f};
 	double posRaw[3]={0,0,0}, posRawPrev[3]={0,0,0}, stateDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 	double tsTrue=tsSensorsFusion; // true sampling time measured using clock_gettime() ,ts_save_buffer
-	int  calibrationCounterEKF=0, posRawOldFlag=0, enableMPU9250Flag=-1, enableAK8963Flag=-1; // calibrationCounter=0, calibrationLoaded=0,
+	int  calibrationCounterEKF=0, posRawOldFlag=0, enableMPU9250Flag=-1, enableAK8963Flag=-1, calibrationCounterM0=0, calibrationCounterP=0; // , calibrationLoaded=0,
 
 	
 	// Save to file buffer variable
@@ -550,12 +560,12 @@ static void *threadSensorFusion (void *arg){
 	
 	// Random variables
 	double L_temp;
-	double a=0.01;
+	double alpha_mag=0.01;
 	int counterCalEuler=0;
 	double q_comp[4], q_init[4]; 
 	int k=0;
 	double euler_comp[3];
-	double euler_mean[3];
+	double euler_mean[3]={0.0};
 	int eulerCalFlag=0;
 	float beta_keyboard;
 	int isnan_flag=0, outofbounds_flag=0;
@@ -623,10 +633,10 @@ static void *threadSensorFusion (void *arg){
 				pthread_mutex_lock(&mutexKeyboardData);
 					timerPrint=(int)keyboardData[5];
 					ekfPrint=(int)keyboardData[6];
-					ekfReset=(int)keyboardData[7];
+					ekfReset=(int)keyboardData[7]; // key n
 					ekfPrint6States=(int)keyboardData[8];
 					sensorCalibrationRestart=(int)keyboardData[9];
-					a=keyboardData[11];
+					alpha_mag=keyboardData[11];
 					beta_keyboard=keyboardData[12];
 					saveDataTrigger=(int)keyboardData[15];
 					 //memcpy(tuningEkfBuffer9x9_bias, tuningEkfData+6, sizeof(tuningEkfData)*6/18); // ekf states 7-12
@@ -694,7 +704,6 @@ static void *threadSensorFusion (void *arg){
 				
 				// Set gain of orientation estimation Madgwick beta and activate Low Pass filtering of raw accelerometer and gyroscope after sampling frequency has stabilized
 				if(tsAverageReadyEKF==2){
-					
 					if(saveDataTrigger){ // only save data when activated from keyboard
 						//clock_gettime(CLOCK_MONOTONIC ,&t_start_buffer); /// start elapsed time clock for buffering procedure
 						// Saving data before low-pass filtering
@@ -738,7 +747,7 @@ static void *threadSensorFusion (void *arg){
 					//sensorDataBuffer[8]=magRawRot[2];
 						
 					if(eulerCalFlag==1){
-						beta=beta_keyboard;
+						beta = beta_keyboard;
 					}
 						
 					// Magnetometer outlier detection
@@ -766,7 +775,9 @@ static void *threadSensorFusion (void *arg){
 									
 					// Orientation estimation with Madgwick filter
 					//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
-					MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+					if ( tsTrue < 10*tsSensorsFusion/NSEC_PER_SEC ) {
+						MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+					}
 
 					// Copy out the returned quaternions from the filter
 					q_comp[0]=q0;
@@ -774,48 +785,67 @@ static void *threadSensorFusion (void *arg){
 					q_comp[2]=-q2;
 					q_comp[3]=-q3;
 					
-				//// Calibration routine
-				//if ( magCalibrationCounter >  CALIBRATION) {
-					//if (magCalibrationCounter==0){
-						//printf("Sensor Calibration started\n");
-						//sensorCalibration(Racc, Rgyr, Rmag, acc0, gyr0, mag0, accCal, gyrCal, magCal, accRaw, gyrRaw, magRawRot, calibrationCounter);
-						////printf("calibrationCounter: %i\n", calibrationCounter);
-						//magCalibrationCounter++;
-					//}
-					//else if(calibrationCounter<CALIBRATION){
-						//sensorCalibration(Racc, Rgyr, Rmag, acc0, gyr0, mag0, accCal, gyrCal, magCal, accRaw, gyrRaw, magRawRot, calibrationCounter);
-						////printf("calibrationCounter: %i\n", calibrationCounter);
-						//magCalibrationCounter++;
-					//}
-					//else if(calibrationCounter==CALIBRATION){
-						//sensorCalibration(Rmag, mag0, magCal, magRawRot, calibrationCounter);			
-						//// Save calibration in 'settings.txt' if it does not exist
-						//saveSettings(Rmag,"Rmag",sizeof(Rmag)/sizeof(double));
-						//saveSettings(mag0,"mag0",sizeof(mag0)/sizeof(double));
-						////printf("calibrationCounter: %i\n", calibrationCounter);
-						//printf("Sensor Calibration finish\n");
-						//magCalibrationCounter++;
-					//}
-				//}
-				//else {
-					////void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double L)
-					////while (  ) {
-						////magnetometerUpdate(q_comp, P_mag, magRawRot, m0, Rm, L);
-					////}
-				//}
-				
-					// Quaternions to eulers (rad)
-					q2euler_zyx(euler,q_comp);
-				
-					 //Allignment compensation for initial point of orientation angles
-					if(k==1000){
-						if(counterCalEuler<1000){
+					// Calibration routine
+					if ( calibrationCounterM0 >  CALIBRATION ) {
+						// Measurement update of EKF with mag
+						magnetometerUpdate(q_comp, Pmag, magRawRot, mag0, Rmag, Lmag, alpha_mag);
+						
+						// Quaternions to eulers (rad)
+						q2euler_zyx(euler,q_comp);
+						
+						// calibrationCounterP routine
+						if ( calibrationCounterP <= MAG_CALIBRATION ) {
+							calibrationCounterP++;
+							if ( calibrationCounterP == 1) {
+								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
+								printf("Magnometer calibration STARTED\n");
+							}
+							else if ( calibrationCounterP == MAG_CALIBRATION ) {
+								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);
+								printf("Pmag = \n");
+								printmat(Pmag,4,4);
+								printf("Magnometer calibration FINISHED\n5 seconds to leave it for alignment!\n");
+							}
+							else {
+								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
+							}							
+						}
+					}
+					else {
+						if ( calibrationCounterM0 == 0 ){
+							printf("Calibration mag0 started\n");
+							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							calibrationCounterM0++;
+						}
+						else if( calibrationCounterM0 < CALIBRATION ){
+							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							calibrationCounterM0++;
+						}
+						else if( calibrationCounterM0 == CALIBRATION ){
+							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							Lmag[0] = sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
+							//// Save calibration in 'settings.txt' if it does not exist
+							//saveSettings(Rmag,"Rmag",sizeof(Rmag)/sizeof(double));
+							//saveSettings(mag0,"mag0",sizeof(mag0)/sizeof(double));
+							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							printf("Calibration mag0 finished\n");
+							calibrationCounterM0++;
+						}
+					}
+					
+					//Allignment compensation for initial point of orientation angles
+					if ( eulerCalFlag != 1 && calibrationCounterP >  MAG_CALIBRATION ) {
+					//if ( eulerCalFlag != 1 ) {
+						if( counterCalEuler < 1000 ) {
 							// Mean (bias) accelerometer, gyroscope and magnetometer
+							if ( counterCalEuler == 0 ) { euler_mean[0]=0.0; euler_mean[1]=0.0; euler_mean[2]=0.0; printf("all euler_mean = %f\n", euler_mean[0]+euler_mean[1]+euler_mean[2]);}
 							euler_mean[0]+=euler[0];
 							euler_mean[1]+=euler[1];
 							euler_mean[2]+=euler[2];												
 							counterCalEuler++;
-							printf("euler_sum: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0], euler_mean[1], euler_mean[2], counterCalEuler);
+							printf("euler_sum: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 						else if(counterCalEuler==1000){
 							euler_mean[0]/=1000.0f;
@@ -823,241 +853,238 @@ static void *threadSensorFusion (void *arg){
 							euler_mean[2]/=1000.0f;
 							counterCalEuler++;
 							eulerCalFlag=1;
-							printf("euler_mean: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0], euler_mean[1], euler_mean[2], counterCalEuler);
-						}
-						else{
-							euler_comp[0]=euler[0]-euler_mean[0];
-							euler_comp[1]=euler[1]-euler_mean[1];
-							euler_comp[2]=euler[2]-euler_mean[2];
+							printf("euler_mean: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 					}
+					euler_comp[0]=euler[0]-euler_mean[0];
+					euler_comp[1]=euler[1]-euler_mean[1];
+					euler_comp[2]=euler[2]-euler_mean[2];
+				}
+				else{
+					printf("SampleFre: %f\n", sampleFreq);
+				}
+								
+				// Move over data to communication.c via pipe
+				sensorDataBuffer[0]=gyrRaw[0];
+				sensorDataBuffer[1]=gyrRaw[1];
+				sensorDataBuffer[2]=gyrRaw[2];
+				sensorDataBuffer[3]=accRaw[0];
+				sensorDataBuffer[4]=accRaw[1];
+				sensorDataBuffer[5]=accRaw[2];
+				sensorDataBuffer[6]=magRawRot[0];
+				sensorDataBuffer[7]=magRawRot[1];
+				sensorDataBuffer[8]=magRawRot[2];
+				sensorDataBuffer[9]=euler_comp[0];
+				sensorDataBuffer[10]=euler_comp[1];
+				sensorDataBuffer[11]=euler_comp[2];
+				sensorDataBuffer[12]=(double)q_comp[0];
+				sensorDataBuffer[13]=(double)q_comp[1];
+				sensorDataBuffer[14]=(double)q_comp[2];
+				sensorDataBuffer[15]=(double)q_comp[3];
+				sensorDataBuffer[16]=posRaw[0];
+				sensorDataBuffer[17]=posRaw[1];
+				sensorDataBuffer[18]=posRaw[2];
 				
+				// Write to Communication process
+				if (write(ptrPipe2->parent[1], sensorDataBuffer, sizeof(sensorDataBuffer)) != sizeof(sensorDataBuffer)) printf("pipe write error in Sensor ot Communicaiont\n");
+				//else printf("Sensor ID: %d, Sent: %f to Communication\n", (int)getpid(), sensorDataBuffer[0]);
+						
+				beaconConnected=1;
+						
+				if(beaconConnected==1 && tsAverageReadyEKF==2 && eulerCalFlag==1){
+					// Check if raw position data is new or old
+					if(posRaw[0]==posRawPrev[0] && posRaw[1]==posRawPrev[1] && posRaw[2]==posRawPrev[2]){
+						posRawOldFlag=1;
 					}
 					else{
-						printf("SampleFre: %f\n", sampleFreq);
+						posRawOldFlag=0;
+						memcpy(posRawPrev, posRaw, sizeof(posRaw));
 					}
-								
-					// Move over data to communication.c via pipe
-					sensorDataBuffer[0]=gyrRaw[0];
-					sensorDataBuffer[1]=gyrRaw[1];
-					sensorDataBuffer[2]=gyrRaw[2];
-					sensorDataBuffer[3]=accRaw[0];
-					sensorDataBuffer[4]=accRaw[1];
-					sensorDataBuffer[5]=accRaw[2];
-					sensorDataBuffer[6]=magRawRot[0];
-					sensorDataBuffer[7]=magRawRot[1];
-					sensorDataBuffer[8]=magRawRot[2];
-					sensorDataBuffer[9]=euler_comp[0];
-					sensorDataBuffer[10]=euler_comp[1];
-					sensorDataBuffer[11]=euler_comp[2];
-					sensorDataBuffer[12]=(double)q_comp[0];
-					sensorDataBuffer[13]=(double)q_comp[1];
-					sensorDataBuffer[14]=(double)q_comp[2];
-					sensorDataBuffer[15]=(double)q_comp[3];
-					sensorDataBuffer[16]=posRaw[0];
-					sensorDataBuffer[17]=posRaw[1];
-					sensorDataBuffer[18]=posRaw[2];
 					
-					// Write to Communication process
-					if (write(ptrPipe2->parent[1], sensorDataBuffer, sizeof(sensorDataBuffer)) != sizeof(sensorDataBuffer)) printf("pipe write error in Sensor ot Communicaiont\n");
-					//else printf("Sensor ID: %d, Sent: %f to Communication\n", (int)getpid(), sensorDataBuffer[0]);
-							
-					beaconConnected=1;
-							
-					if(beaconConnected==1 && tsAverageReadyEKF==2 && eulerCalFlag==1){
-						// Check if raw position data is new or old
-						if(posRaw[0]==posRawPrev[0] && posRaw[1]==posRawPrev[1] && posRaw[2]==posRawPrev[2]){
-							posRawOldFlag=1;
-						}
-						else{
-							posRawOldFlag=0;
-							memcpy(posRawPrev, posRaw, sizeof(posRaw));
-						}
-						
-						// Move data from (euler and posRaw) array to ymeas
-						//ymeas[0]=posRaw[0];
-						//ymeas[1]=posRaw[1];
-						//ymeas[2]=posRaw[2];
-						ymeas9x9[0]=0; // position x
-						ymeas9x9[1]=0; // position y
-						ymeas9x9[2]=0; // position z
-						//ymeas9x9_bias[0]=euler_comp[2]; // phi (x-axis)
-						//ymeas9x9_bias[1]=euler_comp[1]; // theta (y-axis)
-						//ymeas9x9_bias[2]=euler_comp[0]; // psi (z-axis)
-						//ymeas9x9_bias[3]=gyrRaw[0]; // gyro x
-						//ymeas9x9_bias[4]=gyrRaw[1]; // gyro y
-						//ymeas9x9_bias[5]=gyrRaw[2]; // gyro z
-						
-						ymeas6x6[0]=euler_comp[2]; // phi (x-axis)
-						ymeas6x6[1]=euler_comp[1]; // theta (y-axis)
-						ymeas6x6[2]=euler_comp[0]; // psi (z-axis)
-						ymeas6x6[3]=gyrRaw[0]; // gyro x
-						ymeas6x6[4]=gyrRaw[1]; // gyro y
-						ymeas6x6[5]=gyrRaw[2]; // gyro z
-						
-						// Flip direction of rotation and gyro around y-axis and x-axis to match model
-						//ymeas9x9_bias[0]*=-1; // flip phi (x-axis)						
-						//ymeas9x9_bias[1]*=-1; // flip theta (y-axis)	
-						//ymeas9x9_bias[3]*=-1; // flip gyro (x-axis)						
-						////ymeas9x9_bias[4]*=-1; // flip gyro (y-axis)
-						//ymeas9x9_bias[5]*=-1; // flip gyro (z-axis)
-						
-						//ymeas6x6[0]*=-1; // flip phi (x-axis)						
-						//ymeas6x6[1]*=-1; // flip theta (y-axis)	
-						//ymeas6x6[3]*=-1; // flip gyro (x-axis)						
-						////ymeas6x6[4]*=-1; // flip gyro (y-axis)
-						//ymeas6x6[5]*=-1; // flip gyro (z-axis)
+					// Move data from (euler and posRaw) array to ymeas
+					//ymeas[0]=posRaw[0];
+					//ymeas[1]=posRaw[1];
+					//ymeas[2]=posRaw[2];
+					ymeas9x9[0]=0; // position x
+					ymeas9x9[1]=0; // position y
+					ymeas9x9[2]=0; // position z
+					//ymeas9x9_bias[0]=euler_comp[2]; // phi (x-axis)
+					//ymeas9x9_bias[1]=euler_comp[1]; // theta (y-axis)
+					//ymeas9x9_bias[2]=euler_comp[0]; // psi (z-axis)
+					//ymeas9x9_bias[3]=gyrRaw[0]; // gyro x
+					//ymeas9x9_bias[4]=gyrRaw[1]; // gyro y
+					//ymeas9x9_bias[5]=gyrRaw[2]; // gyro z
+					
+					ymeas6x6[0]=euler_comp[2]; // phi (x-axis)
+					ymeas6x6[1]=euler_comp[1]; // theta (y-axis)
+					ymeas6x6[2]=euler_comp[0]; // psi (z-axis)
+					ymeas6x6[3]=gyrRaw[0]; // gyro x
+					ymeas6x6[4]=gyrRaw[1]; // gyro y
+					ymeas6x6[5]=gyrRaw[2]; // gyro z
+					
+					// Flip direction of rotation and gyro around y-axis and x-axis to match model
+					//ymeas9x9_bias[0]*=-1; // flip phi (x-axis)						
+					//ymeas9x9_bias[1]*=-1; // flip theta (y-axis)	
+					//ymeas9x9_bias[3]*=-1; // flip gyro (x-axis)						
+					////ymeas9x9_bias[4]*=-1; // flip gyro (y-axis)
+					//ymeas9x9_bias[5]*=-1; // flip gyro (z-axis)
+					
+					//ymeas6x6[0]*=-1; // flip phi (x-axis)						
+					//ymeas6x6[1]*=-1; // flip theta (y-axis)	
+					//ymeas6x6[3]*=-1; // flip gyro (x-axis)						
+					////ymeas6x6[4]*=-1; // flip gyro (y-axis)
+					//ymeas6x6[5]*=-1; // flip gyro (z-axis)
 
-						// Calibration routine for EKF
-						if (calibrationCounterEKF==0){
-							printf("EKF Calibration started\n");
-							//ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
-							ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
-							ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
-							//printf("calibrationCounterEKF\n: %i", calibrationCounterEKF);
-							calibrationCounterEKF++;
-						}
-						else if(calibrationCounterEKF<CALIBRATION){
-							 //ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
-							ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
-							ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
-							//printf("calibrationCounterEKF\n: %i", calibrationCounterEKF);
-							calibrationCounterEKF++;
+					// Calibration routine for EKF
+					if (calibrationCounterEKF==0){
+						printf("EKF Calibration started\n");
+						//ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
+						ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
+						ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
+						//printf("calibrationCounterEKF\n: %i", calibrationCounterEKF);
+						calibrationCounterEKF++;
+					}
+					else if(calibrationCounterEKF<CALIBRATION){
+						 //ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
+						ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
+						ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
+						//printf("calibrationCounterEKF\n: %i", calibrationCounterEKF);
+						calibrationCounterEKF++;
+						
+					}
+					else if(calibrationCounterEKF==CALIBRATION){
+						//ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
+						ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
+						ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
 							
-						}
-						else if(calibrationCounterEKF==CALIBRATION){
-							//ekfCalibration9x9_bias(Rekf9x9_bias, ekf09x9_bias, ekfCal9x9_bias, ymeas9x9_bias, calibrationCounterEKF);
-							ekfCalibration6x6(Rekf6x6, ekf06x6, ekfCal6x6, ymeas6x6, calibrationCounterEKF);
-							ekfCalibration9x9(Rekf9x9, ekf09x9, ekfCal9x9, ymeas9x9, calibrationCounterEKF);
+						// Save calibration in 'settings.txt' if it does not exist
+						//saveSettings(Rekf,"Rekf",sizeof(Rekf)/sizeof(double), &fpWrite);
+						//saveSettings(ekf0,"ekf0",sizeof(ekf0)/sizeof(double), &fpWrite);
+						 //saveSettings(Rekf9x9_bias,"Rekf9x9_bias",sizeof(Rekf9x9_bias)/sizeof(double));
+						saveSettings(Rekf6x6,"Rekf6x6",sizeof(Rekf6x6)/sizeof(double));
+						saveSettings(Rekf9x9,"Rekf9x9",sizeof(Rekf9x9)/sizeof(double));
+						//saveSettings(ekf09x9_bias,"ekf09x9_bias",sizeof(ekf09x9_bias)/sizeof(double));
+						saveSettings(ekf06x6,"ekf06x6",sizeof(ekf06x6)/sizeof(double));
+						saveSettings(ekf09x9,"ekf09x9",sizeof(ekf09x9)/sizeof(double));
+							
+						//printf("calibrationCounterEKF: %i\n", calibrationCounterEKF);
+						printf("EKF Calibrations finish\n");
+						calibrationCounterEKF++;
+						
+						// Initialize EKF with current available measurement
+						//printf("Initialize EKF xhat with current measurments for position and orientation");
+						
+						// Attitude states initial measurments
+						xhat6x6[0]=0;
+						xhat6x6[1]=0;
+						xhat6x6[2]=0;
+						xhat6x6[3]=0;
+						xhat6x6[4]=0;
+						xhat6x6[5]=0;
+						
+						// Position states initial measurments
+						xhat9x9[0]=ymeas9x9[0];
+						xhat9x9[1]=ymeas9x9[1];
+						xhat9x9[2]=ymeas9x9[2];
+						
+						// Quaternions initial measurments
+						q_init[0]=q0;
+						q_init[1]=q1;
+						q_init[2]=q2;
+						q_init[3]=q3;
+					}
+					// State Estimator
+					else{
+						// Run EKF as long as ekfReset keyboard input is false
+						if(!ekfReset){
+							// Run Extended Kalman Filter (state estimator) using position and orientation data
+							//EKF_no_inertia(Pekf,xhat,uControl,ymeas,Qekf,Rekf,tsAverage,posRawOldFlag);
+							//EKF_9x9_bias(Pekf9x9_bias,xhat9x9_bias,uControl,ymeas9x9_bias,tuningEkfBuffer9x9_bias,Rekf9x9_bias,tsTrue);
+							
+							
+							EKF_6x6(Pekf6x6,xhat6x6,uControl,ymeas6x6,tuningEkfBuffer6x6,Rekf6x6,tsTrue);
+							EKF_9x9(Pekf9x9,xhat9x9,uControl,ymeas9x9,tuningEkfBuffer9x9,Rekf9x9,tsTrue,posRawOldFlag,xhat6x6);
 								
-							// Save calibration in 'settings.txt' if it does not exist
-							//saveSettings(Rekf,"Rekf",sizeof(Rekf)/sizeof(double), &fpWrite);
-							//saveSettings(ekf0,"ekf0",sizeof(ekf0)/sizeof(double), &fpWrite);
-							 //saveSettings(Rekf9x9_bias,"Rekf9x9_bias",sizeof(Rekf9x9_bias)/sizeof(double));
-							saveSettings(Rekf6x6,"Rekf6x6",sizeof(Rekf6x6)/sizeof(double));
-							saveSettings(Rekf9x9,"Rekf9x9",sizeof(Rekf9x9)/sizeof(double));
-							//saveSettings(ekf09x9_bias,"ekf09x9_bias",sizeof(ekf09x9_bias)/sizeof(double));
-							saveSettings(ekf06x6,"ekf06x6",sizeof(ekf06x6)/sizeof(double));
-							saveSettings(ekf09x9,"ekf09x9",sizeof(ekf09x9)/sizeof(double));
-								
-							//printf("calibrationCounterEKF: %i\n", calibrationCounterEKF);
-							printf("EKF Calibrations finish\n");
-							calibrationCounterEKF++;
-							
-							// Initialize EKF with current available measurement
-							//printf("Initialize EKF xhat with current measurments for position and orientation");
-							
-							// Attitude states initial measurments
-							xhat6x6[0]=0;
-							xhat6x6[1]=0;
-							xhat6x6[2]=0;
-							xhat6x6[3]=0;
-							xhat6x6[4]=0;
-							xhat6x6[5]=0;
-							
-							// Position states initial measurments
-							xhat9x9[0]=ymeas9x9[0];
-							xhat9x9[1]=ymeas9x9[1];
-							xhat9x9[2]=ymeas9x9[2];
-							
-							// Quaternions initial measurments
-							q_init[0]=q0;
-							q_init[1]=q1;
-							q_init[2]=q2;
-							q_init[3]=q3;
+							stateDataBuffer[15]=1; // ready flag for MPC to start using the initial conditions given by EKF.
 						}
-						// State Estimator
+						// Reset EKF with initial Phat, xhat and uControl as long as ekfReset keyboard input is true
 						else{
-							// Run EKF as long as ekfReset keyboard input is false
-							if(!ekfReset){
-								// Run Extended Kalman Filter (state estimator) using position and orientation data
-								//EKF_no_inertia(Pekf,xhat,uControl,ymeas,Qekf,Rekf,tsAverage,posRawOldFlag);
-								//EKF_9x9_bias(Pekf9x9_bias,xhat9x9_bias,uControl,ymeas9x9_bias,tuningEkfBuffer9x9_bias,Rekf9x9_bias,tsTrue);
-								
-								
-								EKF_6x6(Pekf6x6,xhat6x6,uControl,ymeas6x6,tuningEkfBuffer6x6,Rekf6x6,tsTrue);
-								EKF_9x9(Pekf9x9,xhat9x9,uControl,ymeas9x9,tuningEkfBuffer9x9,Rekf9x9,tsTrue,posRawOldFlag,xhat6x6);
-									
-								stateDataBuffer[15]=1; // ready flag for MPC to start using the initial conditions given by EKF.
-							}
-							// Reset EKF with initial Phat, xhat and uControl as long as ekfReset keyboard input is true
-							else{
-								//memcpy(Pekf9x9_bias, Pekf9x9_biasInit, sizeof(Pekf9x9_biasInit));
-								memcpy(Pekf6x6, Pekf6x6, sizeof(Pekf6x6Init));	
-								memcpy(Pekf9x9, Pekf9x9Init, sizeof(Pekf9x9Init));	
-								//memcpy(xhat9x9_bias, xhat9x9_biasInit, sizeof(xhat9x9_biasInit));
-								memcpy(xhat6x6, xhat6x6Init, sizeof(xhat6x6Init));
-								memcpy(xhat9x9, xhat9x9Init, sizeof(xhat9x9Init));
-								memcpy(uControl, uControlInit, sizeof(uControlInit));
-								
-								q0=q_init[0];
-								q1=q_init[1];
-								q2=q_init[2];
-								q3=q_init[3];
-								
-								stateDataBuffer[15]=0; // set ready flag for MPC false during reset
-								isnan_flag=0;
-								outofbounds_flag=0;
-							}
+							//memcpy(Pekf9x9_bias, Pekf9x9_biasInit, sizeof(Pekf9x9_biasInit));
+							memcpy(Pekf6x6, Pekf6x6, sizeof(Pekf6x6Init));	
+							memcpy(Pekf9x9, Pekf9x9Init, sizeof(Pekf9x9Init));	
+							//memcpy(xhat9x9_bias, xhat9x9_biasInit, sizeof(xhat9x9_biasInit));
+							memcpy(xhat6x6, xhat6x6Init, sizeof(xhat6x6Init));
+							memcpy(xhat9x9, xhat9x9Init, sizeof(xhat9x9Init));
+							memcpy(uControl, uControlInit, sizeof(uControlInit));
 							
-							// Override disturbance estimation in x and y direction
-							xhat9x9[6]=0;
-							xhat9x9[7]=0;
+							q0=q_init[0];
+							q1=q_init[1];
+							q2=q_init[2];
+							q3=q_init[3];
 							
-							// Torque disturbance saturation
-							//saturation(xhat9x9_bias,6,-0.01,0.01);
-							//saturation(xhat9x9_bias,7,-0.01,0.01);
-							// saturation(xhat9x9_bias,6,0.0,0.0);
-							// saturation(xhat9x9_bias,7,0.0,0.0);
-							// saturation(xhat9x9_bias,8,0.0,0.0);
-							
-							////Check for EKF9x9_bias failure (isnan)
-							 //for (int j=0;j<9;j++){
-								 //if (isnan(xhat9x9_bias[j])!=0){
-									 //isnan_flag=1;
-									 //break;
-								 //}						
-							 //}
-							 
-							//Check for EKF6x6 failure (isnan)
-							 for (int j=0;j<6;j++){
-								 if (isnan(xhat6x6[j])!=0){
-									 isnan_flag=1;
-									 break;
-								 }						
-							 }
-							
-							// Check for EKF9x9 failure (isnan)
-							for (int j=0;j<9;j++){
-								if (isnan(xhat9x9[j])!=0){
-									isnan_flag=1;
-									break;
-								}						
-							}
-							
-							//// Check for EKF9x9_bias failure (out of bounds)
-							 //for (int j=0;j<9;j++){
-								 //if (xhat9x9_bias[j]>1e6){
-									 //outofbounds_flag=1;
-									 //break;
-								 //}						
-							 //}				
-							
-							// Check for EKF6x6 failure (out of bounds)
-							for (int j=0;j<6;j++){
-								if (xhat6x6[j]>1e6){
-									 outofbounds_flag=1;
-									 break;
-								}						
-							}
-							
-							// Check for EKF9x9 failure (out of bounds)
-							for (int j=0;j<9;j++){
-								if (xhat9x9[j]>1e6){
-									outofbounds_flag=1;
-									break;
-								}						
-							}
+							stateDataBuffer[15]=0; // set ready flag for MPC false during reset
+							isnan_flag=0;
+							outofbounds_flag=0;
+						}
+						
+						// Override disturbance estimation in x and y direction
+						xhat9x9[6]=0;
+						xhat9x9[7]=0;
+						
+						// Torque disturbance saturation
+						//saturation(xhat9x9_bias,6,-0.01,0.01);
+						//saturation(xhat9x9_bias,7,-0.01,0.01);
+						// saturation(xhat9x9_bias,6,0.0,0.0);
+						// saturation(xhat9x9_bias,7,0.0,0.0);
+						// saturation(xhat9x9_bias,8,0.0,0.0);
+						
+						////Check for EKF9x9_bias failure (isnan)
+						 //for (int j=0;j<9;j++){
+							 //if (isnan(xhat9x9_bias[j])!=0){
+								 //isnan_flag=1;
+								 //break;
+							 //}						
+						 //}
+						 
+						//Check for EKF6x6 failure (isnan)
+						 for (int j=0;j<6;j++){
+							 if (isnan(xhat6x6[j])!=0){
+								 isnan_flag=1;
+								 break;
+							 }						
+						 }
+						
+						// Check for EKF9x9 failure (isnan)
+						for (int j=0;j<9;j++){
+							if (isnan(xhat9x9[j])!=0){
+								isnan_flag=1;
+								break;
+							}						
+						}
+						
+						//// Check for EKF9x9_bias failure (out of bounds)
+						 //for (int j=0;j<9;j++){
+							 //if (xhat9x9_bias[j]>1e6){
+								 //outofbounds_flag=1;
+								 //break;
+							 //}						
+						 //}				
+						
+						// Check for EKF6x6 failure (out of bounds)
+						for (int j=0;j<6;j++){
+							if (xhat6x6[j]>1e6){
+								 outofbounds_flag=1;
+								 break;
+							}						
+						}
+						
+						// Check for EKF9x9 failure (out of bounds)
+						for (int j=0;j<9;j++){
+							if (xhat9x9[j]>1e6){
+								outofbounds_flag=1;
+								break;
+							}						
+						}
 						
 						if(isnan_flag){
 							stateDataBuffer[15]=0;
@@ -1123,6 +1150,11 @@ static void *threadSensorFusion (void *arg){
 						if(sensorCalibrationRestart){
 							// calibrationCounter=0; // forces sensor fusion to restart calibration
 							calibrationCounterEKF=0; // forces ekf to restart calibration
+							calibrationCounterP=0;
+							calibrationCounterM0=0;
+							eulerCalFlag=0;
+							counterCalEuler=0;
+							printf("eulerCalFlag %i\n", eulerCalFlag);
 						}
 						
 						//// Save buffered data to file
@@ -1189,19 +1221,21 @@ static void *threadSensorFusion (void *arg){
 						}
 					}
 				}
-							
 				/// Calculate next shot
-				 t.tv_nsec += (int)tsSensorsFusion;
-				 while (t.tv_nsec >= NSEC_PER_SEC) {
-					 t.tv_nsec -= NSEC_PER_SEC;
-					 t.tv_sec++;
-				 }
+				if ( calibrationCounterP == MAG_CALIBRATION ) t.tv_sec += 5;
+				//else if ( calibrationCounterM0 == (CALIBRATION-1) ) t.tv_sec += 10;
+				else t.tv_nsec += (int)tsSensorsFusion;
+				
+				//t.tv_nsec += (int)tsSensorsFusion;
+				
+				while (t.tv_nsec >= NSEC_PER_SEC) {
+					t.tv_nsec -= NSEC_PER_SEC;
+					t.tv_sec++;
+				}
 			}
 		}
-
 		t.tv_sec+=2; // I2C sensors not enabled, sleep for 2 and retry
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
-
 	}
 	return NULL;
 }
@@ -1768,7 +1802,7 @@ void EKF_6x6(double *Phat, double *xhat, double *u, double *ymeas, double *Q, do
 }
 
 // State Observer - Extended Kalman Filter for 9 attitude states (including bias estimation)
- void EKF_9x9_bias(double *Phat, double *xhat, double *u, double *ymeas, double *Q, double *R, double Ts){
+void EKF_9x9_bias(double *Phat, double *xhat, double *u, double *ymeas, double *Q, double *R, double Ts){
 	 // Local variables
 	 double xhat_pred[9]={0,0,0,0,0,0};
 	 double C[54]={1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -1974,7 +2008,7 @@ void EKF_9x9(double *Phat, double *xhat, double *u, double *ymeas, double *Q, do
 }
 
 // Nonlinear Model for attitude states (6x1)
- void fx_6x1(double *xhat, double *xhat_prev, double *u, double Ts){
+void fx_6x1(double *xhat, double *xhat_prev, double *u, double Ts){
 	/* 
 	xhat[0]=xhat_prev[0] + Ts*(xhat_prev[3] + xhat_prev[5]*cos(xhat_prev[0])*tan(xhat_prev[1]) + xhat_prev[4]*sin(xhat_prev[0])*tan(xhat_prev[1]));
 	 xhat[1]=xhat_prev[1] + Ts*(xhat_prev[4]*cos(xhat_prev[0]) - xhat_prev[5]*sin(xhat_prev[0]));
@@ -1992,7 +2026,7 @@ void EKF_9x9(double *Phat, double *xhat, double *u, double *ymeas, double *Q, do
 }
 
 // Jacobian of model for attitude states (6x6)
- void Jfx_6x6(double *xhat, double *A, double *u, double Ts){
+void Jfx_6x6(double *xhat, double *A, double *u, double Ts){
 	 //A[0]=Ts*(xhat[4]*cos(xhat[0])*tan(xhat[1]) - xhat[5]*sin(xhat[0])*tan(xhat[1])) + 1;A[1]=-Ts*(xhat[5]*cos(xhat[0]) + xhat[4]*sin(xhat[0]));A[2]=Ts*((xhat[4]*cos(xhat[0]))/cos(xhat[1]) - (xhat[5]*sin(xhat[0]))/cos(xhat[1]));A[3]=0;A[4]=0;A[5]=0;A[6]=Ts*(xhat[5]*cos(xhat[0])*(pow(tan(xhat[1]),2) + 1) + xhat[4]*sin(xhat[0])*(pow(tan(xhat[1]),2) + 1));A[7]=1;A[8]=Ts*((xhat[5]*cos(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2) + (xhat[4]*sin(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2));A[9]=0;A[10]=0;A[11]=0;A[12]=0;A[13]=0;A[14]=1;A[15]=0;A[16]=0;A[17]=0;A[18]=Ts;A[19]=0;A[20]=0;A[21]=1;A[22]=(Ts*xhat[5]*(par_i_xx - par_i_zz))/par_i_yy;A[23]=-(Ts*xhat[4]*(par_i_xx - par_i_yy))/par_i_zz;A[24]=Ts*sin(xhat[0])*tan(xhat[1]);A[25]=Ts*cos(xhat[0]);A[26]=(Ts*sin(xhat[0]))/cos(xhat[1]);A[27]=-(Ts*xhat[5]*(par_i_yy - par_i_zz))/par_i_xx;A[28]=1;A[29]=-(Ts*xhat[3]*(par_i_xx - par_i_yy))/par_i_zz;A[30]=Ts*cos(xhat[0])*tan(xhat[1]);A[31]=-Ts*sin(xhat[0]);A[32]=(Ts*cos(xhat[0]))/cos(xhat[1]);A[33]=-(Ts*xhat[4]*(par_i_yy - par_i_zz))/par_i_xx;A[34]=(Ts*xhat[3]*(par_i_xx - par_i_zz))/par_i_yy;A[35]=1;
 	A[0]=Ts*(xhat[4]*cos(xhat[0])*tan(xhat[1]) - xhat[5]*sin(xhat[0])*tan(xhat[1])) + 1;A[1]=-Ts*(xhat[5]*cos(xhat[0]) + xhat[4]*sin(xhat[0]));A[2]=Ts*((xhat[4]*cos(xhat[0]))/cos(xhat[1]) - (xhat[5]*sin(xhat[0]))/cos(xhat[1]));A[3]=0;A[4]=0;A[5]=0;A[6]=Ts*(xhat[5]*cos(xhat[0])*(pow(tan(xhat[1]),2) + 1) + xhat[4]*sin(xhat[0])*(pow(tan(xhat[1]),2) + 1));A[7]=1;A[8]=Ts*((xhat[5]*cos(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2) + (xhat[4]*sin(xhat[0])*sin(xhat[1]))/pow(cos(xhat[1]),2));A[9]=0;A[10]=0;A[11]=0;A[12]=0;A[13]=0;A[14]=1;A[15]=0;A[16]=0;A[17]=0;A[18]=Ts;A[19]=0;A[20]=0;A[21]=1;A[22]=(Ts*xhat[5]*(par_i_xx - par_i_zz))/par_i_yy;A[23]=-(Ts*xhat[4]*(par_i_xx - par_i_yy))/par_i_zz;A[24]=Ts*sin(xhat[0])*tan(xhat[1]);A[25]=Ts*cos(xhat[0]);A[26]=(Ts*sin(xhat[0]))/cos(xhat[1]);A[27]=-(Ts*xhat[5]*(par_i_yy - par_i_zz))/par_i_xx;A[28]=1;A[29]=-(Ts*xhat[3]*(par_i_xx - par_i_yy))/par_i_zz;A[30]=Ts*cos(xhat[0])*tan(xhat[1]);A[31]=-Ts*sin(xhat[0]);A[32]=(Ts*cos(xhat[0]))/cos(xhat[1]);A[33]=-(Ts*xhat[4]*(par_i_yy - par_i_zz))/par_i_xx;A[34]=(Ts*xhat[3]*(par_i_xx - par_i_zz))/par_i_yy;A[35]=1;
  }
@@ -2044,18 +2078,19 @@ void saturation(double *var, int index, double limMin, double limMax){
 }
 
 // Magnetometer part: mu_m
-void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double L){
+void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double *L, double a){
 	// local variables
-	int ione=1, n=3, k=3, m=3;
-	double fone=1, fzero=0, ykm[3], ykm2[9], Q[9], h1[9], h2[9], h3[9], h4[9], hd[12], Smag[9], P_temp[16], S_temp[12], K_temp[12], Smag_inv[9], ymag_diff[3], state_temp[4];
-	double fkm[3]={0,0,0}, K[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}, a=0.05;
+	int n=3, k=3, m=3;
+	double ykm[3], ykm2[9], Q[9], h1[9], h2[9], h3[9], h4[9], hd[12], Smag[9], P_temp[16], S_temp[12], K_temp[12], Smag_inv[9], ymag_diff[3], state_temp[4];
+	double fkm[3]={0,0,0}, K[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 	
 	// check if acc is valid (isnan and all!=0)
 	// outlier detection
-	L=(1-a)*L+a*sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)); // recursive magnetometer compensator
-	if (sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) > L){
+	L[0]=(1-a)*L[0]+a*sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)); // recursive magnetometer compensator
+	
+	if ( 0 && (sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) > 1.15*L[0] || sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) < 0.85*L[0]) ){
 		// dont use measurement
-		//printf("Magnetometer Outlier\n");
+		printf("Magnetometer Outlier\n");
 	}
 	else{
 		// continue measurement
@@ -2126,7 +2161,6 @@ void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *
 		P[14]-=P_temp[14];
 		P[15]-=P_temp[15];
 	}
-
 }
 
 // Sensor calibration
