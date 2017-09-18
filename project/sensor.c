@@ -46,7 +46,7 @@ static void *threadPipeCommunicationToSensor(void*);
 void qNormalize(double*);
 void q2euler(double*, double*);
 void q2euler_zyx(double *, double *);
-void magnetometerUpdate(double*, double*, double*, double*, double*, double*, double);
+void magnetometerUpdate(double*, double*, double*, double*, double*, double*, double, int*);
 void Qq(double*, double*);
 void dQqdq(double*, double*, double*, double*, double*, double*, double*);
 void sensorCalibration(double *, double *, double *, double *, int );
@@ -56,6 +56,7 @@ void ekfCalibration9x9_bias(double*, double*, double*, double*, int);
 void ekfCalibration9x9(double*, double*, double*, double*, int);
 
 void lowPassFilter(double *, double*, double *, double* , double* , double* );
+void lowPassFilterGyroZ(double* gyrRaw, double* gyrRawMem, double* b_gyr);
 
 int loadSettings(double*, char*, int);
 //void saveSettings(double*, char*, int, FILE**);
@@ -549,17 +550,20 @@ static void *threadSensorFusion (void *arg){
 	// Low Pass filter variables(20Hz and 30 for gyr)
 	//double b_acc[25]={1.54791392878543e-06,2.07185488006612e-05,-5.19703972529415e-20,-0.000462086226027071,-0.00215334176418159,-0.00523098435850049,-0.00693485312903388,2.82650148861993e-18,0.0249007529841827,0.0717988692685668,0.131922751556644,0.183873196192904,0.204526858025432,0.183873196192904,0.131922751556644,0.0717988692685668,0.0249007529841827,2.82650148861993e-18,-0.00693485312903388,-0.0052309843585005,-0.00215334176418159,-0.000462086226027072,-5.1970397252942e-20,2.07185488006612e-05,1.54791392878543e-06};
 	//double b_gyr[25]={-1.51379393190905e-06,-2.78880561210566e-05,7.62372544145295e-20,0.000621987897327971,0.00210587658352694,0.00166218520266596,-0.00678199116255076,-0.0225713907176518,-0.0243518764618903,0.0228146386774076,0.129014835433318,0.247501215646055,0.300027841503688,0.247501215646055,0.129014835433318,0.0228146386774076,-0.0243518764618903,-0.0225713907176518,-0.00678199116255077,0.00166218520266596,0.00210587658352694,0.000621987897327972,7.62372544145302e-20,-2.78880561210566e-05,-1.51379393190905e-06};
+	
+	// 20Hz cut-off
+	double b_gyr[25]={1.54791392878543e-06,2.07185488006612e-05,-5.19703972529415e-20,-0.000462086226027071,-0.00215334176418159,-0.00523098435850049,-0.00693485312903388,2.82650148861993e-18,0.0249007529841827,0.0717988692685668,0.131922751556644,0.183873196192904,0.204526858025432,0.183873196192904,0.131922751556644,0.0717988692685668,0.0249007529841827,2.82650148861993e-18,-0.00693485312903388,-0.0052309843585005,-0.00215334176418159,-0.000462086226027072,-5.1970397252942e-20,2.07185488006612e-05,1.54791392878543e-06};
 
 	//5hz b values
-	double b_acc[25]={3.67701752843937e-06,8.27007534721863e-05,0.000504038930132126,0.0018444766295764,0.00511519100925013,0.0116414444963577,0.0226738421555306,0.0387678986038862,0.0591509020569521,0.0814154703145087,0.101822705283757,0.116246817848376,0.121461669801344,0.116246817848376,0.101822705283757,0.0814154703145088,0.0591509020569522,0.0387678986038862,0.0226738421555306,0.0116414444963577,0.00511519100925013,0.0018444766295764,0.00050403893013213,8.27007534721863e-05,3.67701752843937e-06};
-	double b_gyr[25]={3.67701752843937e-06,8.27007534721863e-05,0.000504038930132126,0.0018444766295764,0.00511519100925013,0.0116414444963577,0.0226738421555306,0.0387678986038862,0.0591509020569521,0.0814154703145087,0.101822705283757,0.116246817848376,0.121461669801344,0.116246817848376,0.101822705283757,0.0814154703145088,0.0591509020569522,0.0387678986038862,0.0226738421555306,0.0116414444963577,0.00511519100925013,0.0018444766295764,0.00050403893013213,8.27007534721863e-05,3.67701752843937e-06};
+	//double b_acc[25]={3.67701752843937e-06,8.27007534721863e-05,0.000504038930132126,0.0018444766295764,0.00511519100925013,0.0116414444963577,0.0226738421555306,0.0387678986038862,0.0591509020569521,0.0814154703145087,0.101822705283757,0.116246817848376,0.121461669801344,0.116246817848376,0.101822705283757,0.0814154703145088,0.0591509020569522,0.0387678986038862,0.0226738421555306,0.0116414444963577,0.00511519100925013,0.0018444766295764,0.00050403893013213,8.27007534721863e-05,3.67701752843937e-06};
+	//double b_gyr[25]={3.67701752843937e-06,8.27007534721863e-05,0.000504038930132126,0.0018444766295764,0.00511519100925013,0.0116414444963577,0.0226738421555306,0.0387678986038862,0.0591509020569521,0.0814154703145087,0.101822705283757,0.116246817848376,0.121461669801344,0.116246817848376,0.101822705283757,0.0814154703145088,0.0591509020569522,0.0387678986038862,0.0226738421555306,0.0116414444963577,0.00511519100925013,0.0018444766295764,0.00050403893013213,8.27007534721863e-05,3.67701752843937e-06};
 	
-	double accRawMem[75]={0}; // memory buffer where elements 0-24=x-axis, 25-49=y-axis and 50-74=z-axis
+	//double accRawMem[75]={0}; // memory buffer where elements 0-24=x-axis, 25-49=y-axis and 50-74=z-axis
 	double gyrRawMem[75]={0};
 	
 	
 	// Random variables
-	double L_temp;
+	//double L_temp;
 	double alpha_mag=0.01;
 	int counterCalEuler=0;
 	double q_comp[4], q_init[4]; 
@@ -572,7 +576,7 @@ static void *threadSensorFusion (void *arg){
 
 	// Keyboard control variables
 	int timerPrint=0, ekfPrint=0, ekfReset=0, ekfPrint6States=0, sensorCalibrationRestart=0,saveDataTrigger=0;
-	int outlierFlag, outlierFlagPercentage, outlierFlagMem[1000];
+	int outlierFlag[1], ioutlierFlagPercentage, outlierFlagMem[1000];
 	int tSensorFusionCounter=0;
 	
 	/// Setup timer variables for real time
@@ -732,6 +736,7 @@ static void *threadSensorFusion (void *arg){
 					// Leaving enough time for Madgwick and EKF to converge after Low Pass filtering and before the controller need new fresh measurements
 					
 					//lowPassFilter(accRaw, gyrRaw, accRawMem, gyrRawMem, b_acc, b_gyr);
+					//lowPassFilterGyroZ(gyrRaw, gyrRawMem, b_gyr);
 					
 					// Set gain of orientation estimation Madgwick beta after initial filter learn
 					if(k==1000){
@@ -765,13 +770,13 @@ static void *threadSensorFusion (void *arg){
 					//}
 					
 					//// outlier percentage
-					//outlierFlagPercentage = 0;
+					//ioutlierFlagPercentage = 0;
 					//for (int i=1; i<1000; i++) {
 						//outlierFlagMem[i-1] = outlierFlagMem[i];
-						//outlierFlagPercentage += outlierFlagMem[i-1];
+						//ioutlierFlagPercentage += outlierFlagMem[i-1];
 					//}
 					//outlierFlagMem[999] = outlierFlag;
-					//outlierFlagPercentage += outlierFlagMem[999];
+					//ioutlierFlagPercentage += outlierFlagMem[999];
 									
 					// Orientation estimation with Madgwick filter
 					//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
@@ -779,19 +784,26 @@ static void *threadSensorFusion (void *arg){
 						MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
 					}
 
-					// Copy out the returned quaternions from the filter
 					q_comp[0]=q0;
-					q_comp[1]=-q1;
-					q_comp[2]=-q2;
-					q_comp[3]=-q3;
+					q_comp[1]=q1;
+					q_comp[2]=q2;
+					q_comp[3]=q3;
 					
 					// Calibration routine
 					if ( calibrationCounterM0 >  CALIBRATION ) {
 						// Measurement update of EKF with mag
-						magnetometerUpdate(q_comp, Pmag, magRawRot, mag0, Rmag, Lmag, alpha_mag);
+						double nom_mag[3]={0,sqrt(pow(mag0[0],2)+pow(mag0[1],2)),mag0[2]};
+						magnetometerUpdate(q_comp, Pmag, magRawRot, nom_mag, Rmag, Lmag, alpha_mag, outlierFlag);
+						normMag=sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
 						
-						// Quaternions to eulers (rad)
-						q2euler_zyx(euler,q_comp);
+						// outlier percentage
+						ioutlierFlagPercentage = 0;
+						for (int i=1; i<1000; i++) {
+							outlierFlagMem[i-1] = outlierFlagMem[i];
+							ioutlierFlagPercentage += outlierFlagMem[i-1];
+						}
+						outlierFlagMem[999] = outlierFlag[0];
+						ioutlierFlagPercentage += outlierFlagMem[999];
 						
 						// calibrationCounterP routine
 						if ( calibrationCounterP <= MAG_CALIBRATION ) {
@@ -834,6 +846,19 @@ static void *threadSensorFusion (void *arg){
 							calibrationCounterM0++;
 						}
 					}
+					
+					// Copy out the returned quaternions from the filter
+					q0=q_comp[0];
+					q1=q_comp[1];
+					q2=q_comp[2];
+					q3=q_comp[3];
+				
+					q_comp[1]*=-1;
+					q_comp[2]*=-1;
+					q_comp[3]*=-1;
+					
+					// Quaternions to eulers (rad)
+					q2euler_zyx(euler,q_comp);
 					
 					//Allignment compensation for initial point of orientation angles
 					if ( eulerCalFlag != 1 && calibrationCounterP >  MAG_CALIBRATION ) {
@@ -1139,7 +1164,8 @@ static void *threadSensorFusion (void *arg){
 						
 						if(ekfPrint6States && tSensorFusionCounter % 10 == 0){
 							//printf("xhat: % 1.4f % 1.4f % 1.4f % 2.4f % 2.4f % 2.4f (euler_meas) % 2.4f % 2.4f % 2.4f (gyr_meas) % 2.4f % 2.4f % 2.4f (outlier) %i %i (freq) %3.5f u: %3.4f %3.4f %3.4f %3.4f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9_bias[0]*(180/PI),xhat9x9_bias[1]*(180/PI),xhat9x9_bias[2]*(180/PI), ymeas9x9_bias[0]*(180/PI),ymeas9x9_bias[1]*(180/PI),ymeas9x9_bias[2]*(180/PI), gyrRaw[0], gyrRaw[1], gyrRaw[2], outlierFlag, outlierFlagPercentage, sampleFreq, uControl[0], uControl[1], uControl[2], uControl[3]);
-							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
+							//printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
+							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %f (normMag) %f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), 	xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI));
 						}
 	
 						// Write to Controller process
@@ -2078,25 +2104,33 @@ void saturation(double *var, int index, double limMin, double limMax){
 }
 
 // Magnetometer part: mu_m
-void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *Rm, double *L, double a){
+void magnetometerUpdate(double *quat, double *P, double *ymag, double *m0, double *Rm, double *L, double a, int *outlierFlag){
 	// local variables
 	int n=3, k=3, m=3;
-	double ykm[3], ykm2[9], Q[9], h1[9], h2[9], h3[9], h4[9], hd[12], Smag[9], P_temp[16], S_temp[12], K_temp[12], Smag_inv[9], ymag_diff[3], state_temp[4];
+	double normMag, L_temp, ykm[3], ykm2[9], Q[9], h1[9], h2[9], h3[9], h4[9], hd[12], Smag[9], P_temp[16], S_temp[12], K_temp[12], Smag_inv[9], ymag_diff[3], state_temp[4];
 	double fkm[3]={0,0,0}, K[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+	double ymag_local[3] = {0.0};
 	
-	// check if acc is valid (isnan and all!=0)
-	// outlier detection
-	L[0]=(1-a)*L[0]+a*sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)); // recursive magnetometer compensator
+	normMag=sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2));
+	L_temp=(1-a)*L[0]+a*normMag; // recursive magnetometer compensator
+	L[0]=L_temp;
 	
-	if ( 0 && (sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) > 1.15*L[0] || sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)) < 0.85*L[0]) ){
+	ymag_local[0] = ymag[0]/normMag;
+	ymag_local[1] = ymag[1]/normMag;
+	ymag_local[2] = ymag[2]/normMag;
+	
+	//L[0]=(1-a)*L[0]+a*sqrt(pow(ymag[0],2) + pow(ymag[1],2) + pow(ymag[2],2)); // recursive magnetometer compensator
+	
+	if ( normMag > 1.15*L_temp || normMag < 0.85*L_temp ){
 		// dont use measurement
-		printf("Magnetometer Outlier\n");
+		//printf("Magnetometer Outlier\n");
+		outlierFlag[0]=1;
 	}
 	else{
 		// continue measurement
 		// mu_m
 		// ykm=Qq(x)'*ykm2=Qq(x)'*(m0+fkm); magnetometer and quaternion model relation
-		Qq(Q, q);
+		Qq(Q, quat);
 		ykm2[0]=m0[0]+fkm[0];
 		ykm2[1]=m0[1]+fkm[1];
 		ykm2[2]=m0[2]+fkm[2];
@@ -2104,7 +2138,7 @@ void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *
 		
 		// [h1 h2 h3 h4]=dQqdq(x); jacobian
 		// hd=[h1'*m0 h2'*m0 h3'*m0 h4'*m0];
-		dQqdq(h1, h2, h3, h4, hd, q, m0);	
+		dQqdq(h1, h2, h3, h4, hd, quat, m0);	
 		
 		// Smag=hd*P*hd'+Rm; innovation covariance
 		n=4; k=4; m=3;
@@ -2134,10 +2168,10 @@ void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *
 		ymag_diff[2]=ymag[2]-ykm[2];
 		n=3, k=4, m=4;
 		F77_CALL(dgemv)("n",&m,&n,&fone,K,&m,ymag_diff,&ione,&fzero,state_temp,&ione);
-		q[0]+=state_temp[0];
-		q[1]+=state_temp[1];
-		q[2]+=state_temp[2];
-		q[3]+=state_temp[3];
+		quat[0]+=state_temp[0];
+		quat[1]+=state_temp[1];
+		quat[2]+=state_temp[2];
+		quat[3]+=state_temp[3];
 		
 		// P=P-K*S*K'; covariance update
 		n=3; k=3; m=4;
@@ -2160,6 +2194,8 @@ void magnetometerUpdate(double *q, double *P, double *ymag, double *m0, double *
 		P[13]-=P_temp[13];
 		P[14]-=P_temp[14];
 		P[15]-=P_temp[15];
+		
+		outlierFlag[0]=0;
 	}
 }
 
@@ -2319,6 +2355,35 @@ void lowPassFilter(double *accRaw, double* gyrRaw, double *accRawMem, double* gy
 		accRaw[2]+=b_acc[i]*accRawMem[i+50];	// z-axis
 		gyrRaw[0]+=b_gyr[i]*gyrRawMem[i];		// x-axis
 		gyrRaw[1]+=b_gyr[i]*gyrRawMem[i+25];	// y-axis
+		gyrRaw[2]+=b_gyr[i]*gyrRawMem[i+50];	// z-axis
+
+		// ORIGINAL y(k) = y(k) + b(i)*acc_x(k-i);
+	}
+}
+
+// Low Pass Filter 24 order for Gyro z
+void lowPassFilterGyroZ(double* gyrRaw, double* gyrRawMem, double* b_gyr){
+	// Shift all old data in measurement memory by one element: new -> [,,,,] -> old
+	for (int k = 24; k > 0; k--){        
+		//gyrRawMem[k]=gyrRawMem[k-1];		// x-axis
+		//gyrRawMem[k+25]=gyrRawMem[k-1+25];	// y-axis
+		gyrRawMem[k+50]=gyrRawMem[k-1+50];	// z-axis
+	}
+	
+	// Assign fresh non filtered measurement to memory
+	//gyrRawMem[0]=gyrRaw[0];		// x-axis
+	//gyrRawMem[0+25]=gyrRaw[1];	// y-axis
+	gyrRawMem[0+50]=gyrRaw[2];	// z-axis
+	
+	// Zero out measurement before adding filtered data to
+	//gyrRaw[0]=0;
+	//gyrRaw[1]=0;
+	gyrRaw[2]=0;
+	
+	// Filter the data
+	for(int i=0;i<25;i++){
+		//gyrRaw[0]+=b_gyr[i]*gyrRawMem[i];		// x-axis
+		//gyrRaw[1]+=b_gyr[i]*gyrRawMem[i+25];	// y-axis
 		gyrRaw[2]+=b_gyr[i]*gyrRawMem[i+50];	// z-axis
 
 		// ORIGINAL y(k) = y(k) + b(i)*acc_x(k-i);
