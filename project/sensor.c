@@ -107,24 +107,24 @@ void startSensors(void *arg1, void *arg2){
 	int threadPID2, threadPID3, threadPID4; //t hreadPID1, 
 	
 	//threadPID1=pthread_create(&threadReadPos, NULL, &threadReadBeacon, NULL);
-	threadPID2=pthread_create(&threadSenFus, NULL, &threadSensorFusion, &pipeArrayStruct);
+	//threadPID2=pthread_create(&threadSenFus, NULL, &threadSensorFusion, &pipeArrayStruct);
 	threadPID3=pthread_create(&threadPWMCtrl, NULL, &threadPWMControl, arg1);
 	threadPID4=pthread_create(&threadCommToSens, NULL, &threadPipeCommunicationToSensor, arg2);
 	
 	// Set up thread scheduler priority for real time tasks
 	struct sched_param paramThread2, paramThread3, paramThread4; // paramThread1, 
 	//paramThread1.sched_priority = PRIORITY_SENSOR_BEACON; // set priorities
-	paramThread2.sched_priority = PRIORITY_SENSOR_FUSION;
+	//paramThread2.sched_priority = PRIORITY_SENSOR_FUSION;
 	paramThread3.sched_priority = PRIORITY_SENSOR_PWM;
 	paramThread4.sched_priority = PRIORITY_SENSOR_PIPE_COMMUNICATION;
 	//if(sched_setscheduler(threadPID1, SCHED_FIFO, &paramThread1)==-1) {perror("sched_setscheduler failed for threadPID1");exit(-1);}
-	if(sched_setscheduler(threadPID2, SCHED_FIFO, &paramThread2)==-1) {perror("sched_setscheduler failed for threadPID2");exit(-1);}
+	//if(sched_setscheduler(threadPID2, SCHED_FIFO, &paramThread2)==-1) {perror("sched_setscheduler failed for threadPID2");exit(-1);}
 	if(sched_setscheduler(threadPID3, SCHED_FIFO, &paramThread3)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
 	if(sched_setscheduler(threadPID4, SCHED_FIFO, &paramThread4)==-1) {perror("sched_setscheduler failed for threadPID3");exit(-1);}
 	
 	// If threads created successful, start them
 	//if (!threadPID1) pthread_join( threadReadPos, NULL);
-	if (!threadPID2) pthread_join( threadSenFus, NULL);
+	//if (!threadPID2) pthread_join( threadSenFus, NULL);
 	if (!threadPID3) pthread_join( threadPWMCtrl, NULL);
 	if (!threadPID4) pthread_join( threadCommToSens, NULL);
 }
@@ -1198,6 +1198,7 @@ static void *threadSensorFusion (void *arg){
 				 }
 			}
 		}
+
 		t.tv_sec+=2; // I2C sensors not enabled, sleep for 2 and retry
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 

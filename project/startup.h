@@ -34,7 +34,7 @@
 //#define tsUDP 100000000
 #define tsSensorsFusion 10e+6 // 0.025s
 #define tsReadBeacon 50000000 // 0.05s
-#define tsUdpWrite 10e+6 // 0.1s
+#define tsUdpWrite 10e+8 // 0.1s
 
 /******************************/
 // Model Parameters
