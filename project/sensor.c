@@ -46,7 +46,10 @@ static void *threadPipeCommunicationToSensor(void*);
 void qNormalize(double*);
 void q2euler(double*, double*);
 void q2euler_zyx(double *, double *);
+void eul2quat_zyx(double *q, double *eul);
+
 void magnetometerUpdate(double*, double*, double*, double*, double*, double*, double, int*);
+void magnetometerUpdateZ(double *, double*, double*, double*, double*, double*, double*, double, int*);
 void Qq(double*, double*);
 void dQqdq(double*, double*, double*, double*, double*, double*, double*);
 void sensorCalibration(double *, double *, double *, double *, int );
@@ -468,13 +471,14 @@ static void *threadSensorFusion (void *arg){
 	structPipe *ptrPipe2 = pipeArrayStruct->pipe2;
 	
 	// Define local variables
-	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, mag0[3]={0.0}, magRawRot[3]={0}, tempRaw=0, euler[3]={0.0}, magCal[3*CALIBRATION]; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
+	double accRaw[3]={0,0,0}, gyrRaw[3]={0,0,0}, magRaw[3]={0,0,0}, mag0[3]={0.0}, magRawRot[3]={0}, tempRaw=0, euler[3]={0.0}, euler_nonConj[3]={0.0}, magCal[3*CALIBRATION]; // acc0[3]={0,0,0}, gyr0[3]={0,0,0}, accCal[3*CALIBRATION], gyrCal[3*CALIBRATION], magCal[3*CALIBRATION], 
 	double Lmag[1]={1}, normMag=0, Rmag[9]={0.0}, sensorDataBuffer[19]={0.0}; // Racc[9]={0,0,0,0,0,0,0,0,0}, Rgyr[9]={0,0,0,0,0,0,0,0,0},  q[4]={1,0,0,0},
-	double Pmag[16]={1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f};
+	double Pmag[16]={1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,1.0f}, Pmag1[1]={1.0};
 	double posRaw[3]={0,0,0}, posRawPrev[3]={0,0,0}, stateDataBuffer[19]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 	double tsTrue=tsSensorsFusion; // true sampling time measured using clock_gettime() ,ts_save_buffer
 	int  calibrationCounterEKF=0, posRawOldFlag=0, enableMPU9250Flag=-1, enableAK8963Flag=-1, calibrationCounterM0=0, calibrationCounterP=0; // , calibrationLoaded=0,
-
+	double headingMean[1]={0.0}, heading[1]={0.0}, heading_pred, headingMem[1000]={0.0}, headingAvg=0;
+	
 	
 	// Save to file buffer variable
 	double buffer_u1[BUFFER];
@@ -576,7 +580,7 @@ static void *threadSensorFusion (void *arg){
 
 	// Keyboard control variables
 	int timerPrint=0, ekfPrint=0, ekfReset=0, ekfPrint6States=0, sensorCalibrationRestart=0,saveDataTrigger=0;
-	int outlierFlag[1], ioutlierFlagPercentage, outlierFlagMem[1000];
+	int outlierFlag[1]={0}, ioutlierFlagPercentage=0, outlierFlagMem[1000];
 	int tSensorFusionCounter=0;
 	
 	/// Setup timer variables for real time
@@ -789,60 +793,95 @@ static void *threadSensorFusion (void *arg){
 					q_comp[2]=q2;
 					q_comp[3]=q3;
 					
+					normMag=sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
+					
+					//// Calibration routine
+					//if ( calibrationCounterM0 >  CALIBRATION ) {
+						//double nom_mag[3]={0,sqrt(pow(mag0[0],2)+pow(mag0[1],2)),mag0[2]};
+						
+						//// Measurement update of EKF with mag
+						//magnetometerUpdate(q_comp, Pmag, magRawRot, nom_mag, Rmag, Lmag, alpha_mag, outlierFlag);
+						
+						//normMag=sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));	// for print
+						
+						//// outlier percentage
+						//ioutlierFlagPercentage = 0;
+						//for (int i=1; i<1000; i++) {
+							//outlierFlagMem[i-1] = outlierFlagMem[i];
+							//ioutlierFlagPercentage += outlierFlagMem[i-1];
+						//}
+						//outlierFlagMem[999] = outlierFlag[0];
+						//ioutlierFlagPercentage += outlierFlagMem[999];
+						
+						//// calibrationCounterP routine
+						//if ( calibrationCounterP <= MAG_CALIBRATION ) {
+							//calibrationCounterP++;
+							//if ( calibrationCounterP == 1) {
+								//printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
+								//printf("Magnometer calibration STARTED\n");
+							//}
+							//else if ( calibrationCounterP == MAG_CALIBRATION ) {
+								//printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);
+								//printf("Pmag = \n");
+								//printmat(Pmag,4,4);
+								//printf("Magnometer calibration FINISHED\n5 seconds to leave it for alignment!\n");
+							//}
+							//else {
+								//printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
+							//}							
+						//}
+					//}
+					//else {
+						//if ( calibrationCounterM0 == 0 ){
+							//printf("Calibration mag0 started\n");
+							//sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							////printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							//calibrationCounterM0++;
+						//}
+						//else if( calibrationCounterM0 < CALIBRATION ){
+							//sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							////printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							//calibrationCounterM0++;
+						//}
+						//else if( calibrationCounterM0 == CALIBRATION ){
+							//sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
+							//Lmag[0] = sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
+							////// Save calibration in 'settings.txt' if it does not exist
+							////saveSettings(Rmag,"Rmag",sizeof(Rmag)/sizeof(double));
+							////saveSettings(mag0,"mag0",sizeof(mag0)/sizeof(double));
+							////printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							//printf("Calibration mag0 finished\n");
+							//calibrationCounterM0++;
+						//}
+					//}
+
 					// Calibration routine
 					if ( calibrationCounterM0 >  CALIBRATION ) {
-						// Measurement update of EKF with mag
-						double nom_mag[3]={0,sqrt(pow(mag0[0],2)+pow(mag0[1],2)),mag0[2]};
-						magnetometerUpdate(q_comp, Pmag, magRawRot, nom_mag, Rmag, Lmag, alpha_mag, outlierFlag);
-						normMag=sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
+
+						//magnetometerUpdateZ(heading, q_comp, Pmag1, magRawRot, mag0, Rmag, Lmag, alpha_mag, outlierFlag);
+						//q2euler_zyx(euler,q_comp);
+						//euler[0] = heading[0];
+						//eul2quat_zyx(q_comp, euler);
 						
-						// outlier percentage
-						ioutlierFlagPercentage = 0;
-						for (int i=1; i<1000; i++) {
-							outlierFlagMem[i-1] = outlierFlagMem[i];
-							ioutlierFlagPercentage += outlierFlagMem[i-1];
-						}
-						outlierFlagMem[999] = outlierFlag[0];
-						ioutlierFlagPercentage += outlierFlagMem[999];
-						
-						// calibrationCounterP routine
-						if ( calibrationCounterP <= MAG_CALIBRATION ) {
-							calibrationCounterP++;
-							if ( calibrationCounterP == 1) {
-								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
-								printf("Magnometer calibration STARTED\n");
-							}
-							else if ( calibrationCounterP == MAG_CALIBRATION ) {
-								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);
-								printf("Pmag = \n");
-								printmat(Pmag,4,4);
-								printf("Magnometer calibration FINISHED\n5 seconds to leave it for alignment!\n");
-							}
-							else {
-								printf("Eulers: % 1.3f, % 1.3f, % 1.3f | counter: %i\n", euler[0]*180/PI, euler[1]*180/PI, euler[2]*180/PI, calibrationCounterP);	
-							}							
-						}
+						calibrationCounterP = MAG_CALIBRATION+1;
 					}
 					else {
 						if ( calibrationCounterM0 == 0 ){
-							printf("Calibration mag0 started\n");
 							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
-							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							printf("Calibration mag0 started\n");
+							headingMean[0] += atan2(magRawRot[1],magRawRot[0]);  
 							calibrationCounterM0++;
 						}
 						else if( calibrationCounterM0 < CALIBRATION ){
 							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
-							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							headingMean[0] += atan2(magRawRot[1],magRawRot[0]);
 							calibrationCounterM0++;
 						}
 						else if( calibrationCounterM0 == CALIBRATION ){
 							sensorCalibration( Rmag, mag0, magCal, magRawRot, calibrationCounterM0 );
-							Lmag[0] = sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
-							//// Save calibration in 'settings.txt' if it does not exist
-							//saveSettings(Rmag,"Rmag",sizeof(Rmag)/sizeof(double));
-							//saveSettings(mag0,"mag0",sizeof(mag0)/sizeof(double));
-							//printf("calibrationCounterM0: %i\n", calibrationCounterM0);
+							headingMean[0] /= CALIBRATION;
 							printf("Calibration mag0 finished\n");
+							printf("headingMean[0] = % 2.4f\n", headingMean[0]*180/PI);
 							calibrationCounterM0++;
 						}
 					}
@@ -852,6 +891,7 @@ static void *threadSensorFusion (void *arg){
 					q1=q_comp[1];
 					q2=q_comp[2];
 					q3=q_comp[3];
+					double q_madgwick[4] = { q0, q1, q2, q3 };
 				
 					q_comp[1]*=-1;
 					q_comp[2]*=-1;
@@ -859,6 +899,7 @@ static void *threadSensorFusion (void *arg){
 					
 					// Quaternions to eulers (rad)
 					q2euler_zyx(euler,q_comp);
+					q2euler_zyx(euler_nonConj,q_madgwick);
 					
 					//Allignment compensation for initial point of orientation angles
 					if ( eulerCalFlag != 1 && calibrationCounterP >  MAG_CALIBRATION ) {
@@ -870,7 +911,7 @@ static void *threadSensorFusion (void *arg){
 							euler_mean[1]+=euler[1];
 							euler_mean[2]+=euler[2];												
 							counterCalEuler++;
-							printf("euler_sum: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
+							printf("euler_sum: % 1.4f % 1.4f % 1.4f | counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 						else if(counterCalEuler==1000){
 							euler_mean[0]/=1000.0f;
@@ -878,12 +919,28 @@ static void *threadSensorFusion (void *arg){
 							euler_mean[2]/=1000.0f;
 							counterCalEuler++;
 							eulerCalFlag=1;
-							printf("euler_mean: %1.4f %1.4f %1.4f counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
+							printf("euler_mean: % 1.4f % 1.4f % 1.4f | counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 					}
 					euler_comp[0]=euler[0]-euler_mean[0];
 					euler_comp[1]=euler[1]-euler_mean[1];
 					euler_comp[2]=euler[2]-euler_mean[2];
+					
+					double magRawRot_2[3];
+					magRawRot_2[0] = magRawRot[0]*cos(euler_mean[1]) + magRawRot[2]*sin(euler_mean[0]); 
+					magRawRot_2[1] = magRawRot[0]*sin(euler_mean[2])*sin(euler_mean[1]) + magRawRot[1]*cos(euler_mean[2]) - magRawRot[2]*sin(euler_mean[2])*cos(euler_mean[1]);
+					
+					heading[0] = atan2(magRawRot_2[1],magRawRot_2[0]) - headingMean[0];
+					heading_pred = heading[0];
+					// Moving average heading
+					headingAvg = 0;
+					for (int i=1; i<1000; i++) {
+						headingMem[i-1] = headingMem[i];
+						headingAvg += headingMem[i-1];
+					}
+					headingMem[999] = heading_pred;
+					headingAvg += headingMem[999];
+					headingAvg /= 1000;
 				}
 				else{
 					printf("SampleFre: %f\n", sampleFreq);
@@ -1165,7 +1222,7 @@ static void *threadSensorFusion (void *arg){
 						if(ekfPrint6States && tSensorFusionCounter % 10 == 0){
 							//printf("xhat: % 1.4f % 1.4f % 1.4f % 2.4f % 2.4f % 2.4f (euler_meas) % 2.4f % 2.4f % 2.4f (gyr_meas) % 2.4f % 2.4f % 2.4f (outlier) %i %i (freq) %3.5f u: %3.4f %3.4f %3.4f %3.4f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9_bias[0]*(180/PI),xhat9x9_bias[1]*(180/PI),xhat9x9_bias[2]*(180/PI), ymeas9x9_bias[0]*(180/PI),ymeas9x9_bias[1]*(180/PI),ymeas9x9_bias[2]*(180/PI), gyrRaw[0], gyrRaw[1], gyrRaw[2], outlierFlag, outlierFlagPercentage, sampleFreq, uControl[0], uControl[1], uControl[2], uControl[3]);
 							//printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
-							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %f (normMag) %f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), 	xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI));
+							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %2.4f (normMag) %2.4f (hding, hding_pred, predAvg) % 2.4f % 2.4f % 2.4f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	heading[0]*180/PI,heading_pred*180/PI,headingAvg*180/PI,		magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI));
 						}
 	
 						// Write to Controller process
@@ -2104,6 +2161,21 @@ void saturation(double *var, int index, double limMin, double limMax){
 }
 
 // Magnetometer part: mu_m
+void magnetometerUpdateZ(double *heading, double *q, double *P, double *meas, double *m0, double *Rm, double *L, double a, int *outlierFlag){
+	double V, K, S, P_old, euler_local[3];
+	
+	q2euler_zyx(euler_local,q);
+	P_old = P[0];
+	
+	V = heading[0] - euler_local[0];
+	S = P_old + Rm[8];
+	K = P_old/S;
+	
+	P[0] = P_old - K*S*K;
+	heading[0] = euler_local[0] + K*V;
+}
+
+// Magnetometer part: mu_m
 void magnetometerUpdate(double *quat, double *P, double *ymag, double *m0, double *Rm, double *L, double a, int *outlierFlag){
 	// local variables
 	int n=3, k=3, m=3;
@@ -2236,6 +2308,21 @@ void sensorCalibration(double *Rmag, double *mag0, double *magCal, double *ymag,
 		magCal[counterCal*3+1]=ymag[1];
 		magCal[counterCal*3+2]=ymag[2];
 	}		
+}
+
+void eul2quat_zyx(double *q, double *eul) {
+	double c1, c2, c3, s1, s2, s3;
+		c1=cos(eul[0]/2);
+		c2=cos(eul[1]/2);
+		c3=cos(eul[2]/2);
+		s1=sin(eul[0]/2);
+		s2=sin(eul[1]/2);
+		s3=sin(eul[2]/2);
+				
+		q[0] = c1*c2*c3+s1*s2*s3;
+		q[1] = c1*c2*s3-s1*s2*c3;
+		q[2] = c1*s2*c3+s1*c2*s3;
+		q[3] = s1*c2*c3-c1*s2*s3;
 }
 
 // Quaternions matrix
