@@ -48,6 +48,7 @@ void q2euler(double*, double*);
 void q2euler_zyx(double *, double *);
 void eul2quat_zyx(double *q, double *eul);
 
+void MadgwickQuaternionUpdate(float , float , float , float , float , float , float , float , float , float *, float );
 void magnetometerUpdate(double*, double*, double*, double*, double*, double*, double, int*);
 void magnetometerUpdateZ(double *, double*, double*, double*, double*, double*, double*, double, int*);
 void Qq(double*, double*);
@@ -478,6 +479,9 @@ static void *threadSensorFusion (void *arg){
 	double tsTrue=tsSensorsFusion; // true sampling time measured using clock_gettime() ,ts_save_buffer
 	int  calibrationCounterEKF=0, posRawOldFlag=0, enableMPU9250Flag=-1, enableAK8963Flag=-1, calibrationCounterM0=0, calibrationCounterP=0; // , calibrationLoaded=0,
 	double headingMean[1]={0.0}, heading[1]={0.0}, heading_pred, headingMem[1000]={0.0}, headingAvg=0;
+	double magRawRot_flat[3]={0.0};
+	float q_mwk_AHRS[4] = {1,0,0,0}, q_mwk_UPDATE[4] = {1,0,0,0};
+	double q_double[4] = {1,0,0,0};
 	
 	
 	// Save to file buffer variable
@@ -512,8 +516,6 @@ static void *threadSensorFusion (void *arg){
 	double buffer_gyr_x_filt[BUFFER];
 	double buffer_gyr_y_filt[BUFFER];
 	double buffer_gyr_z_filt[BUFFER];
-	
-	
 	
 	int buffer_counter=0;
 	//FILE *fpWrite;
@@ -564,8 +566,7 @@ static void *threadSensorFusion (void *arg){
 	
 	//double accRawMem[75]={0}; // memory buffer where elements 0-24=x-axis, 25-49=y-axis and 50-74=z-axis
 	double gyrRawMem[75]={0};
-	
-	
+		
 	// Random variables
 	//double L_temp;
 	double alpha_mag=0.01;
@@ -743,12 +744,18 @@ static void *threadSensorFusion (void *arg){
 					//lowPassFilterGyroZ(gyrRaw, gyrRawMem, b_gyr);
 					
 					// Set gain of orientation estimation Madgwick beta after initial filter learn
-					if(k==1000){
+					if (k==1001) beta=0.05;
+					else if(k==1000){
 						beta=0.05;
+						printf("Beta is %f \n", beta);
 						//eulerCalFlag=1;
+						k++;
 					}
-					else{
-						printf("SampleFre: %f Sample: %i\n", sampleFreq, k++);
+					else if (k<1000){
+						//printf("SampleFre: %f Sample: %i\n", sampleFreq, k++);
+						if (k==0) printf("Beta is %f\n", beta);
+						//else printf(".");
+						k++;
 					}
 				
 					//sensorDataBuffer[6]=magRawRot[0];
@@ -783,17 +790,24 @@ static void *threadSensorFusion (void *arg){
 					//ioutlierFlagPercentage += outlierFlagMem[999];
 									
 					// Orientation estimation with Madgwick filter
-					//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
 					if ( tsTrue < 10*tsSensorsFusion/NSEC_PER_SEC ) {
-						MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+						//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], 
+							//(float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
+						//MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+						MadgwickQuaternionUpdate((float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], 
+							(float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2], q_mwk_UPDATE, (float)tsTrue);
 					}
+					//void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float *q, float deltat)
 
-					q_comp[0]=q0;
-					q_comp[1]=q1;
-					q_comp[2]=q2;
-					q_comp[3]=q3;
+					q_comp[0]=(double)q0;
+					q_comp[1]=(double)q1;
+					q_comp[2]=(double)q2;
+					q_comp[3]=(double)q3;
 					
 					normMag=sqrt(pow(magRawRot[0],2) + pow(magRawRot[1],2) + pow(magRawRot[2],2));
+					magRawRot[0] /= normMag;
+					magRawRot[1] /= normMag;
+					magRawRot[2] /= normMag;
 					
 					//// Calibration routine
 					//if ( calibrationCounterM0 >  CALIBRATION ) {
@@ -859,6 +873,7 @@ static void *threadSensorFusion (void *arg){
 					if ( calibrationCounterM0 >  CALIBRATION ) {
 
 						//magnetometerUpdateZ(heading, q_comp, Pmag1, magRawRot, mag0, Rmag, Lmag, alpha_mag, outlierFlag);
+						
 						//q2euler_zyx(euler,q_comp);
 						//euler[0] = heading[0];
 						//eul2quat_zyx(q_comp, euler);
@@ -887,31 +902,35 @@ static void *threadSensorFusion (void *arg){
 					}
 					
 					// Copy out the returned quaternions from the filter
-					q0=q_comp[0];
-					q1=q_comp[1];
-					q2=q_comp[2];
-					q3=q_comp[3];
-					double q_madgwick[4] = { q0, q1, q2, q3 };
-				
-					q_comp[1]*=-1;
-					q_comp[2]*=-1;
-					q_comp[3]*=-1;
+					q0=(float)q_comp[0];
+					q1=(float)q_comp[1];
+					q2=(float)q_comp[2];
+					q3=(float)q_comp[3];
+					q_mwk_AHRS[0] = q0; q_mwk_AHRS[1] = q1; q_mwk_AHRS[2] = q2; q_mwk_AHRS[3] = q3;
+					
+					//Conjugate
+					q_comp[1]*=-1; q_comp[2]*=-1; q_comp[3]*=-1;
 					
 					// Quaternions to eulers (rad)
-					q2euler_zyx(euler,q_comp);
-					q2euler_zyx(euler_nonConj,q_madgwick);
+					q_double[0]=(double)q_mwk_UPDATE[0]; q_double[1]=(double)(q_mwk_UPDATE[1]*(-1)); q_double[2]=(double)(q_mwk_UPDATE[2]*(-1)); q_double[3]=((double)q_mwk_UPDATE[3]*(-1));
+					//q2euler_zyx(euler,q_comp);
+					q2euler_zyx(euler,q_double); // NOTE: second inpiut is double and not float!
 					
 					//Allignment compensation for initial point of orientation angles
 					if ( eulerCalFlag != 1 && calibrationCounterP >  MAG_CALIBRATION ) {
 					//if ( eulerCalFlag != 1 ) {
-						if( counterCalEuler < 1000 ) {
+						if ( counterCalEuler == 0 ) { 
+							euler_mean[0]=0.0; euler_mean[1]=0.0; euler_mean[2]=0.0; 
+							printf("sum of euler_mean = %2.4f\n", euler_mean[0]+euler_mean[1]+euler_mean[2]);
+							counterCalEuler++;
+							}
+						else if( counterCalEuler < 1000 ) {
 							// Mean (bias) accelerometer, gyroscope and magnetometer
-							if ( counterCalEuler == 0 ) { euler_mean[0]=0.0; euler_mean[1]=0.0; euler_mean[2]=0.0; printf("all euler_mean = %f\n", euler_mean[0]+euler_mean[1]+euler_mean[2]);}
 							euler_mean[0]+=euler[0];
 							euler_mean[1]+=euler[1];
 							euler_mean[2]+=euler[2];												
 							counterCalEuler++;
-							printf("euler_sum: % 1.4f % 1.4f % 1.4f | counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
+							//printf("euler_sum: % 1.4f % 1.4f % 1.4f | counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 						else if(counterCalEuler==1000){
 							euler_mean[0]/=1000.0f;
@@ -919,18 +938,18 @@ static void *threadSensorFusion (void *arg){
 							euler_mean[2]/=1000.0f;
 							counterCalEuler++;
 							eulerCalFlag=1;
-							printf("euler_mean: % 1.4f % 1.4f % 1.4f | counter: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
+							printf("euler_mean: % 1.4f % 1.4f % 1.4f | counter should be 1001: %i\n", euler_mean[0]*180/PI, euler_mean[1]*180/PI, euler_mean[2]*180/PI, counterCalEuler);
 						}
 					}
 					euler_comp[0]=euler[0]-euler_mean[0];
 					euler_comp[1]=euler[1]-euler_mean[1];
 					euler_comp[2]=euler[2]-euler_mean[2];
 					
-					double magRawRot_2[3];
-					magRawRot_2[0] = magRawRot[0]*cos(euler_mean[1]) + magRawRot[2]*sin(euler_mean[0]); 
-					magRawRot_2[1] = magRawRot[0]*sin(euler_mean[2])*sin(euler_mean[1]) + magRawRot[1]*cos(euler_mean[2]) - magRawRot[2]*sin(euler_mean[2])*cos(euler_mean[1]);
+					// Heading
+					magRawRot_flat[0] = magRawRot[0]*cos(euler_mean[1]) + magRawRot[2]*sin(euler_mean[0]); // this is taking the euler_mean for now instead of euler_comp
+					magRawRot_flat[1] = magRawRot[0]*sin(euler_mean[2])*sin(euler_mean[1]) + magRawRot[1]*cos(euler_mean[2]) - magRawRot[2]*sin(euler_mean[2])*cos(euler_mean[1]);
 					
-					heading[0] = atan2(magRawRot_2[1],magRawRot_2[0]) - headingMean[0];
+					heading[0] = atan2(magRawRot_flat[1],magRawRot_flat[0]) - headingMean[0];
 					heading_pred = heading[0];
 					// Moving average heading
 					headingAvg = 0;
@@ -1222,7 +1241,7 @@ static void *threadSensorFusion (void *arg){
 						if(ekfPrint6States && tSensorFusionCounter % 10 == 0){
 							//printf("xhat: % 1.4f % 1.4f % 1.4f % 2.4f % 2.4f % 2.4f (euler_meas) % 2.4f % 2.4f % 2.4f (gyr_meas) % 2.4f % 2.4f % 2.4f (outlier) %i %i (freq) %3.5f u: %3.4f %3.4f %3.4f %3.4f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9_bias[0]*(180/PI),xhat9x9_bias[1]*(180/PI),xhat9x9_bias[2]*(180/PI), ymeas9x9_bias[0]*(180/PI),ymeas9x9_bias[1]*(180/PI),ymeas9x9_bias[2]*(180/PI), gyrRaw[0], gyrRaw[1], gyrRaw[2], outlierFlag, outlierFlagPercentage, sampleFreq, uControl[0], uControl[1], uControl[2], uControl[3]);
 							//printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
-							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %2.4f (normMag) %2.4f (hding, hding_pred, predAvg) % 2.4f % 2.4f % 2.4f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	heading[0]*180/PI,heading_pred*180/PI,headingAvg*180/PI,		magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI));
+							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %2.4f (normMag) %3.2f (hding, hding_pred, predAvg) % 2.4f % 2.4f % 2.4f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	heading[0]*180/PI,heading_pred*180/PI,headingAvg*180/PI,		magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI));
 						}
 	
 						// Write to Controller process
@@ -1651,6 +1670,7 @@ void q2euler(double *result, double *q){
 // Quaternions to Eulers according to ZYX rotation
 void q2euler_zyx(double *result, double *q){
 	double R[5];
+		
 	R[0] = 2.*pow(q[0],2)-1+2.*pow(q[1],2);
     R[1] = 2.*(q[1]*q[2]-q[0]*q[3]);
     R[2] = 2.*(q[1]*q[3]+q[0]*q[2]);
@@ -2476,3 +2496,103 @@ void lowPassFilterGyroZ(double* gyrRaw, double* gyrRawMem, double* b_gyr){
 		// ORIGINAL y(k) = y(k) + b(i)*acc_x(k-i);
 	}
 }
+
+// Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
+// (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
+// which fuses acceleration, rotation rate, and magnetic moments to produce a quaternion-based estimate of absolute
+// device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
+// The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
+// but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
+void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float *q, float deltat)
+{
+	// float q[0] = q[0], q[1] = q[1], q[2] = q[2], q[3] = q[3];   // short name local variable for readability
+	float norm;
+	float hx, hy, _2bx, _2bz;
+	float s1, s2, s3, s4;
+	float qDot1, qDot2, qDot3, qDot4;
+
+	// Auxiliary variables to avoid repeated arithmetic
+	float _2q1mx;
+	float _2q1my;
+	float _2q1mz;
+	float _2q2mx;
+	float _4bx;
+	float _4bz;
+	float _2q1 = 2.0f * q[0];
+	float _2q2 = 2.0f * q[1];
+	float _2q3 = 2.0f * q[2];
+	float _2q4 = 2.0f * q[3];
+	float _2q1q3 = 2.0f * q[0] * q[2];
+	float _2q3q4 = 2.0f * q[2] * q[3];
+	float q1q1 = q[0] * q[0];
+	float q1q2 = q[0] * q[1];
+	float q1q3 = q[0] * q[2];
+	float q1q4 = q[0] * q[3];
+	float q2q2 = q[1] * q[1];
+	float q2q3 = q[1] * q[2];
+	float q2q4 = q[1] * q[3];
+	float q3q3 = q[2] * q[2];
+	float q3q4 = q[2] * q[3];
+	float q4q4 = q[3] * q[3];
+
+	// Normalise accelerometer measurement
+	norm = sqrt(ax * ax + ay * ay + az * az);
+	if (norm == 0.0f) return; // handle NaN
+	norm = 1.0f/norm;
+	ax *= norm;
+	ay *= norm;
+	az *= norm;
+
+	// Normalise magnetometer measurement
+	norm = sqrt(mx * mx + my * my + mz * mz);
+	if (norm == 0.0f) return; // handle NaN
+	norm = 1.0f/norm;
+	mx *= norm;
+	my *= norm;
+	mz *= norm;
+
+	// Reference direction of Earth's magnetic field
+	_2q1mx = 2.0f * q[0] * mx;
+	_2q1my = 2.0f * q[0] * my;
+	_2q1mz = 2.0f * q[0] * mz;
+	_2q2mx = 2.0f * q[1] * mx;
+	hx = mx * q1q1 - _2q1my * q[3] + _2q1mz * q[2] + mx * q2q2 + _2q2 * my * q[2] + _2q2 * mz * q[3] - mx * q3q3 - mx * q4q4;
+	hy = _2q1mx * q[3] + my * q1q1 - _2q1mz * q[1] + _2q2mx * q[2] - my * q2q2 + my * q3q3 + _2q3 * mz * q[3] - my * q4q4;
+	_2bx = sqrt(hx * hx + hy * hy);
+	_2bz = -_2q1mx * q[2] + _2q1my * q[1] + mz * q1q1 + _2q2mx * q[3] - mz * q2q2 + _2q3 * my * q[3] - mz * q3q3 + mz * q4q4;
+	_4bx = 2.0f * _2bx;
+	_4bz = 2.0f * _2bz;
+
+	// Gradient decent algorithm corrective step
+	s1 = -_2q3 * (2.0f * q2q4 - _2q1q3 - ax) + _2q2 * (2.0f * q1q2 + _2q3q4 - ay) - _2bz * q[2] * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q[3] + _2bz * q[1]) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q[2] * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+	s2 = _2q4 * (2.0f * q2q4 - _2q1q3 - ax) + _2q1 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q[1] * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + _2bz * q[3] * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q[2] + _2bz * q[0]) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q[3] - _4bz * q[1]) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+	s3 = -_2q1 * (2.0f * q2q4 - _2q1q3 - ax) + _2q4 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q[2] * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + (-_4bx * q[2] - _2bz * q[0]) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q[1] + _2bz * q[3]) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q[0] - _4bz * q[2]) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+	s4 = _2q2 * (2.0f * q2q4 - _2q1q3 - ax) + _2q3 * (2.0f * q1q2 + _2q3q4 - ay) + (-_4bx * q[3] + _2bz * q[1]) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q[0] + _2bz * q[2]) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q[1] * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+	norm = sqrt(s1 * s1 + s2 * s2 + s3 * s3 + s4 * s4);    // normalise step magnitude
+	norm = 1.0f/norm;
+	s1 *= norm;
+	s2 *= norm;
+	s3 *= norm;
+	s4 *= norm;
+
+	// Compute rate of change of quaternion
+	qDot1 = 0.5f * (-q[1] * gx - q[2] * gy - q[3] * gz) - beta * s1;
+	qDot2 = 0.5f * (q[0] * gx + q[2] * gz - q[3] * gy) - beta * s2;
+	qDot3 = 0.5f * (q[0] * gy - q[1] * gz + q[3] * gx) - beta * s3;
+	qDot4 = 0.5f * (q[0] * gz + q[1] * gy - q[2] * gx) - beta * s4;
+
+	// Integrate to yield quaternion
+	q[0] += qDot1 * deltat;
+	q[1] += qDot2 * deltat;
+	q[2] += qDot3 * deltat;
+	q[3] += qDot4 * deltat;
+	norm = sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);    // normalise quaternion
+	norm = 1.0f/norm;
+	q[0] = q[0] * norm;
+	q[1] = q[1] * norm;
+	q[2] = q[2] * norm;
+	q[3] = q[3] * norm;
+
+}
+
+
