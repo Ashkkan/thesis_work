@@ -479,10 +479,10 @@ static void *threadSensorFusion (void *arg){
 	double tsTrue=tsSensorsFusion; // true sampling time measured using clock_gettime() ,ts_save_buffer
 	int  calibrationCounterEKF=0, posRawOldFlag=0, enableMPU9250Flag=-1, enableAK8963Flag=-1, calibrationCounterM0=0, calibrationCounterP=0; // , calibrationLoaded=0,
 	double headingMean[1]={0.0}, heading[1]={0.0}, heading_pred, headingMem[1000]={0.0}, headingAvg=0;
+	double headingGyro=0, gyroAvg=0, gyroMem[1000]={0.0};
 	double magRawRot_flat[3]={0.0};
 	float q_mwk_AHRS[4] = {1,0,0,0}, q_mwk_UPDATE[4] = {1,0,0,0};
 	double q_double[4] = {1,0,0,0};
-	
 	
 	// Save to file buffer variable
 	double buffer_u1[BUFFER];
@@ -789,13 +789,14 @@ static void *threadSensorFusion (void *arg){
 					//outlierFlagMem[999] = outlierFlag;
 					//ioutlierFlagPercentage += outlierFlagMem[999];
 									
+					//gyrRaw[2] -= gyroAvg; 		// Deduct a moving average of gyro bias	
 					// Orientation estimation with Madgwick filter
 					if ( tsTrue < 10*tsSensorsFusion/NSEC_PER_SEC ) {
 						//MadgwickAHRSupdate((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2], 
 							//(float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2]);
-						//MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
-						MadgwickQuaternionUpdate((float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], 
-							(float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2], q_mwk_UPDATE, (float)tsTrue);
+						MadgwickAHRSupdateIMU((float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], (float)accRaw[0], (float)accRaw[1], (float)accRaw[2]);
+						//MadgwickQuaternionUpdate((float)accRaw[0], (float)accRaw[1], (float)accRaw[2], (float)gyrRaw[0], (float)gyrRaw[1], (float)gyrRaw[2], 
+							//(float)magRawRot[0], (float)magRawRot[1], (float)magRawRot[2], q_mwk_UPDATE, (float)tsTrue);
 					}
 					//void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float *q, float deltat)
 
@@ -913,8 +914,8 @@ static void *threadSensorFusion (void *arg){
 					
 					// Quaternions to eulers (rad)
 					q_double[0]=(double)q_mwk_UPDATE[0]; q_double[1]=(double)(q_mwk_UPDATE[1]*(-1)); q_double[2]=(double)(q_mwk_UPDATE[2]*(-1)); q_double[3]=((double)q_mwk_UPDATE[3]*(-1));
-					//q2euler_zyx(euler,q_comp);
-					q2euler_zyx(euler,q_double); // NOTE: second inpiut is double and not float!
+					q2euler_zyx(euler,q_comp);
+					//q2euler_zyx(euler,q_double); // NOTE: second inpiut is double and not float!
 					
 					//Allignment compensation for initial point of orientation angles
 					if ( eulerCalFlag != 1 && calibrationCounterP >  MAG_CALIBRATION ) {
@@ -946,12 +947,13 @@ static void *threadSensorFusion (void *arg){
 					euler_comp[2]=euler[2]-euler_mean[2];
 					
 					// Heading
-					magRawRot_flat[0] = magRawRot[0]*cos(euler_mean[1]) + magRawRot[2]*sin(euler_mean[0]); // this is taking the euler_mean for now instead of euler_comp
+					// this is taking the euler_mean for now instead of euler_comp
+					magRawRot_flat[0] = magRawRot[0]*cos(euler_mean[1]) + magRawRot[2]*sin(euler_mean[0]);
 					magRawRot_flat[1] = magRawRot[0]*sin(euler_mean[2])*sin(euler_mean[1]) + magRawRot[1]*cos(euler_mean[2]) - magRawRot[2]*sin(euler_mean[2])*cos(euler_mean[1]);
 					
 					heading[0] = atan2(magRawRot_flat[1],magRawRot_flat[0]) - headingMean[0];
 					heading_pred = heading[0];
-					// Moving average heading
+					// Moving average filter on heading
 					headingAvg = 0;
 					for (int i=1; i<1000; i++) {
 						headingMem[i-1] = headingMem[i];
@@ -960,6 +962,17 @@ static void *threadSensorFusion (void *arg){
 					headingMem[999] = heading_pred;
 					headingAvg += headingMem[999];
 					headingAvg /= 1000;
+					// Moving average of gyro bias
+					gyroAvg = 0;
+					for (int i=1; i<1000; i++) {
+						gyroMem[i-1] = gyroMem[i];
+						gyroAvg += gyroMem[i-1];
+					}
+					gyroMem[999] = gyrRaw[2];
+					gyroAvg += gyroMem[999];
+					gyroAvg /= 1000;
+					// Making heading using only gyro
+					headingGyro += tsTrue*gyrRaw[2];
 				}
 				else{
 					printf("SampleFre: %f\n", sampleFreq);
@@ -1233,15 +1246,14 @@ static void *threadSensorFusion (void *arg){
 						tSensorFusionCounter++;
 						
 						if(ekfPrint && tSensorFusionCounter % 10 == 0){
-							double norm_mag = 1/sqrt(magRawRot[0] * magRawRot[0] + magRawRot[1] * magRawRot[1] + magRawRot[2] * magRawRot[2]);
-							//printf("xhat: (pos) % 1.4f % 1.4f % 1.4f (vel) % 1.4f % 1.4f % 1.4f (dist pos) % 1.4f % 1.4f % 1.4f (ang_e) % 2.4f % 2.4f % 2.4f (omeg_e) % 2.4f % 2.4f % 2.4f (freq) % 3.1f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9[3],xhat9x9[4],xhat9x9[5],xhat9x9[6],xhat9x9[7],xhat9x9[8],xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI),xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), sampleFreq);
-							printf("(mag) % 1.4f % 1.4f % 1.4f (atan2(y/x)) % 1.4f\n", magRawRot[0]*norm_mag, magRawRot[1]*norm_mag, magRawRot[2]*norm_mag, atan2(magRawRot[1]*norm_mag, magRawRot[0]*norm_mag)*(180/PI));
+							printf("xhat: (pos) % 1.4f % 1.4f % 1.4f (vel) % 1.4f % 1.4f % 1.4f (dist pos) % 1.4f % 1.4f % 1.4f (ang_e) % 2.4f % 2.4f % 2.4f (omeg_e) % 2.4f % 2.4f % 2.4f (freq) % 3.1f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9[3],xhat9x9[4],xhat9x9[5],xhat9x9[6],xhat9x9[7],xhat9x9[8],xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI),xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), sampleFreq);
+							//printf("(mag) % 1.4f % 1.4f % 1.4f (atan2(y/x)) % 1.4f\n", magRawRot[0]*norm_mag, magRawRot[1]*norm_mag, magRawRot[2]*norm_mag, atan2(magRawRot[1]*norm_mag, magRawRot[0]*norm_mag)*(180/PI));
 						}
 						
 						if(ekfPrint6States && tSensorFusionCounter % 10 == 0){
 							//printf("xhat: % 1.4f % 1.4f % 1.4f % 2.4f % 2.4f % 2.4f (euler_meas) % 2.4f % 2.4f % 2.4f (gyr_meas) % 2.4f % 2.4f % 2.4f (outlier) %i %i (freq) %3.5f u: %3.4f %3.4f %3.4f %3.4f\n",xhat9x9[0],xhat9x9[1],xhat9x9[2],xhat9x9_bias[0]*(180/PI),xhat9x9_bias[1]*(180/PI),xhat9x9_bias[2]*(180/PI), ymeas9x9_bias[0]*(180/PI),ymeas9x9_bias[1]*(180/PI),ymeas9x9_bias[2]*(180/PI), gyrRaw[0], gyrRaw[1], gyrRaw[2], outlierFlag, outlierFlagPercentage, sampleFreq, uControl[0], uControl[1], uControl[2], uControl[3]);
-							//printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
-							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %2.4f (normMag) %3.2f (hding, hding_pred, predAvg) % 2.4f % 2.4f % 2.4f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	heading[0]*180/PI,heading_pred*180/PI,headingAvg*180/PI,		magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI));
+							printf("(ang(m)) % 2.4f % 2.4f % 2.4f (ang(xhat)) % 2.4f % 2.4f % 2.4f (omeg(m)) % 2.4f % 2.4f % 2.4f (omeg(xhat)) % 2.4f % 2.4f % 2.4f (pwm) % 3.4f % 3.4f % 3.4f % 3.4f (thrust) % 1.3f (torque) % 1.5f % 1.5f % 1.5f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), xhat6x6[0]*(180/PI),xhat6x6[1]*(180/PI),xhat6x6[2]*(180/PI), ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI), xhat6x6[3]*(180/PI),xhat6x6[4]*(180/PI),xhat6x6[5]*(180/PI), uControl[0], uControl[1], uControl[2], uControl[3], uControlThrustTorques[0], uControlThrustTorques[1], uControlThrustTorques[2], uControlThrustTorques[3]);
+							//printf("(ang(m)) % 2.4f % 2.4f % 2.4f (hdngTrue,gyroAvg,hdngGyro) % 2.4f % 2.4f % 2.4f (OLP) %i %i (L) %2.4f (normMag) %3.2f (hding, hding_pred, predAvg) % 2.4f % 2.4f % 2.4f (rawMag) %f %f %f (omeg(m)) % 2.4f % 2.4f % 2.4f \n",ymeas6x6[0]*(180/PI),ymeas6x6[1]*(180/PI),ymeas6x6[2]*(180/PI), 	(ymeas6x6[2]-headingGyro)*(180/PI),gyroAvg*(180/PI),headingGyro*(180/PI), 	ioutlierFlagPercentage, outlierFlag[0],		Lmag[0],normMag,	heading[0]*180/PI,heading_pred*180/PI,headingAvg*180/PI,		magRawRot[0],magRawRot[1],magRawRot[2],		ymeas6x6[3]*(180/PI),ymeas6x6[4]*(180/PI),ymeas6x6[5]*(180/PI));
 						}
 	
 						// Write to Controller process

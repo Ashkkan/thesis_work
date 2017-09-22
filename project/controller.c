@@ -651,7 +651,7 @@ void *threadController( void *arg ) {
 				if ( thrust <= 2 ) {
 					tau_x=0; tau_y=0; tau_z=0;
 					if ( controllerCounter % 40 == 0 ) {
-						printf("thrust less than %f\n", thrust);
+						printf("thrust less than 2= %f\n", thrust);
 					}
 				}
 	
